@@ -1,0 +1,8 @@
+Flask==3.1.0
+markitdown[pdf,docx,xlsx,pptx]==0.1.5
+pytesseract==0.3.13
+Pillow
+requests
+beautifulsoup4
+markdownify
+striprtf

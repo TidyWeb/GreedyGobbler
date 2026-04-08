@@ -1,0 +1,6 @@
+.venv/
+temp/
+__pycache__/
+*.pyc
+uploads/
+/home/Phil/Downloads/DirtyGobbler/
