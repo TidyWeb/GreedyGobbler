@@ -2,6 +2,8 @@ Thanks for your interest in this filthy little file. Dirty Gobbler is a small pe
 
 DG will eat most things - even handwritten guff (within the limitations of Tesseract) but Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) (local, free) or upload directly to [Gemini](https://gemini.google.com) (cloud).
 
+![Dirty Gobbler screenshot](screenshots/screenshot.png)
+
 # Dirty Gobbler
 
 Lightweight local desktop app that converts documents and websites into clean Markdown for LLM context windows.
