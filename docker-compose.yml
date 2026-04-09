@@ -4,5 +4,5 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - ./output:/home/Phil/Downloads/DirtyGobbler
-      - ./temp:/home/Phil/projects/DirtyGobbler/temp
+      - ./output:/home/Phil/Downloads/GreedyGobbler
+      - ./temp:/home/Phil/projects/GreedyGobbler/temp

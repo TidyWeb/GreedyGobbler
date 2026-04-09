@@ -9,7 +9,7 @@ from PIL import Image
 _md = MarkItDown()
 
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; DirtyGobbler/1.0)"
+    "User-Agent": "Mozilla/5.0 (compatible; GreedyGobbler/1.0)"
 }
 
 

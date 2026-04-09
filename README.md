@@ -35,7 +35,7 @@ Greedy Gobbler is a stripped-down variant of Gobbler (full version, not yet publ
 - Markdown cleaning pipeline: strips navigation menus, cookie notices, boilerplate, and duplicate blocks
 - Paywall detection: amber warning with HTML-save tip when content looks thin or gated
 - Raw / Normalised toggle to compare output before and after cleaning
-- Copy to clipboard or save as `.md` to `~/Downloads/DirtyGobbler/`
+- Copy to clipboard or save as `.md` to `~/Downloads/GreedyGobbler/`
 - Smart filename generation: `domain-slug.md` from URL structure
 
 ## Running with Docker (recommended)
@@ -43,8 +43,8 @@ Greedy Gobbler is a stripped-down variant of Gobbler (full version, not yet publ
 Requires [Docker](https://docs.docker.com/get-docker/) installed.
 
 ```bash
-git clone https://github.com/TidyWeb/DirtyGobbler.git
-cd DirtyGobbler
+git clone https://github.com/TidyWeb/GreedyGobbler.git
+cd GreedyGobbler
 docker compose up --build
 ```
 
@@ -53,7 +53,7 @@ Then open http://localhost:5001 in your browser. Converted files are saved to `.
 ## Running without Docker
 
 ```bash
-cd DirtyGobbler
+cd GreedyGobbler
 source .venv/bin/activate
 python app.py
 ```

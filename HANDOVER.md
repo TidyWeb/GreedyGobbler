@@ -1,11 +1,11 @@
 # Project: Greedy Gobbler Handover
 
 ## Context
-- **Display name**: Greedy Gobbler (folder: DirtyGobbler — do not rename)
+- **Display name**: Greedy Gobbler (folder: GreedyGobbler)
 - **Parent project**: Gobbler at `/home/[user]/projects/Predigester/` — do not modify that project
 - **Platform**: Fedora 43 KDE Plasma
 - **Tools**: Python 3.13, Flask, MarkItDown, requests + BeautifulSoup + markdownify
-- **Environment**: Virtual environment at `/home/[user]/projects/DirtyGobbler/.venv`
+- **Environment**: Virtual environment at `/home/[user]/projects/GreedyGobbler/.venv`
 - **Runs at**: http://127.0.0.1:5000/
 
 ## What is Greedy Gobbler?
@@ -30,7 +30,7 @@ launch.sh           KDE launcher: starts Flask if not running, opens browser
 requirements.txt    All direct deps (Flask, markitdown, pytesseract, Pillow, requests, bs4, markdownify)
 ```
 
-**Saving**: Output written to `/home/[user]/Downloads/DirtyGobbler/` as `.md` files.
+**Saving**: Output written to `/home/[user]/Downloads/GreedyGobbler/` as `.md` files.
 
 ## Key Technical Decisions
 - **URL fetching**: `requests.get()` with a browser-like User-Agent, 15s timeout. Response HTML converted to Markdown via `markdownify(html, heading_style="ATX")`. Single page only — no depth, no crawling.

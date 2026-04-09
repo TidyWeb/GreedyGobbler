@@ -1,7 +1,7 @@
 #!/bin/bash
 # Greedy Gobbler launcher — starts Flask if not already running, then opens browser.
 
-APP_DIR="/home/Phil/projects/DirtyGobbler"
+APP_DIR="/home/Phil/projects/GreedyGobbler"
 URL="http://127.0.0.1:5001/"
 LOG="/tmp/dirtygobbler.log"
 

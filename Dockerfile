@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /home/Phil/Downloads/DirtyGobbler /home/Phil/projects/DirtyGobbler/temp
+RUN mkdir -p /home/Phil/Downloads/GreedyGobbler /home/Phil/projects/GreedyGobbler/temp
 
 EXPOSE 5001
 

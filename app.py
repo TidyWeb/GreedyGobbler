@@ -5,8 +5,8 @@ from converter import process_input
 
 app = Flask(__name__)
 
-SAVE_DIR = "/home/Phil/Downloads/DirtyGobbler/"
-TEMP_DIR = "/home/Phil/projects/DirtyGobbler/temp/"
+SAVE_DIR = "/home/Phil/Downloads/GreedyGobbler/"
+TEMP_DIR = "/home/Phil/projects/GreedyGobbler/temp/"
 
 for d in [SAVE_DIR, TEMP_DIR]:
     if not os.path.exists(d):
