@@ -38,7 +38,19 @@ Dirty Gobbler is a stripped-down variant of Gobbler (full version, not yet publi
 - Copy to clipboard or save as `.md` to `~/Downloads/DirtyGobbler/`
 - Smart filename generation: `domain-slug.md` from URL structure
 
-## Running
+## Running with Docker (recommended)
+
+Requires [Docker](https://docs.docker.com/get-docker/) installed.
+
+```bash
+git clone https://github.com/TidyWeb/DirtyGobbler.git
+cd DirtyGobbler
+docker compose up --build
+```
+
+Then open http://localhost:5001 in your browser. Converted files are saved to `./output/` in the project folder.
+
+## Running without Docker
 
 ```bash
 cd DirtyGobbler
