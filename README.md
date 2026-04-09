@@ -2,7 +2,7 @@ Thanks for your interest in this filthy little file. Greedy Gobbler is a small p
 
 DG will eat most things - even handwritten guff (within the limitations of Tesseract) but Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) (local, free) or upload directly to [Gemini](https://gemini.google.com) (cloud).
 
-![Greedy Gobbler screenshot](screenshots/screenshot.png)
+![Greedy Gobbler screenshot](screenshots/greedy-gobbler-screenshot.png)
 
 # Greedy Gobbler
 
