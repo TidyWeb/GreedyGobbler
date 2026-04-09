@@ -1,6 +1,6 @@
-# Contributing to Dirty Gobbler
+# Contributing to Greedy Gobbler
 
-Thanks for your interest. Dirty Gobbler is a small personal tool — contributions are welcome but kept simple.
+Thanks for your interest. Greedy Gobbler is a small personal tool — contributions are welcome but kept simple.
 
 ## Reporting bugs
 

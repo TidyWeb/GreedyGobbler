@@ -1,14 +1,14 @@
-# Project: Dirty Gobbler Handover
+# Project: Greedy Gobbler Handover
 
 ## Context
-- **Display name**: Dirty Gobbler (folder: DirtyGobbler — do not rename)
+- **Display name**: Greedy Gobbler (folder: DirtyGobbler — do not rename)
 - **Parent project**: Gobbler at `/home/[user]/projects/Predigester/` — do not modify that project
 - **Platform**: Fedora 43 KDE Plasma
 - **Tools**: Python 3.13, Flask, MarkItDown, requests + BeautifulSoup + markdownify
 - **Environment**: Virtual environment at `/home/[user]/projects/DirtyGobbler/.venv`
 - **Runs at**: http://127.0.0.1:5000/
 
-## What is Dirty Gobbler?
+## What is Greedy Gobbler?
 A lightweight single-page URL fetcher variant of Gobbler. Replaces Crawl4AI (headless browser, ~1.5 GB) with a simple `requests` + `markdownify` fetch. Trade-off: no JavaScript rendering, no multi-page crawling, but near-instant startup and a tiny dependency footprint.
 
 ## Current Architecture

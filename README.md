@@ -1,15 +1,15 @@
-Thanks for your interest in this filthy little file. Dirty Gobbler is a small personal tool — designed to consume and crunch-up the vast steaming piles of human friendly media that clog our world into simple pelletised machine fodder.
+Thanks for your interest in this filthy little file. Greedy Gobbler is a small personal tool — designed to consume and crunch-up the vast steaming piles of human friendly media that clog our world into simple pelletised machine fodder.
 
 DG will eat most things - even handwritten guff (within the limitations of Tesseract) but Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) (local, free) or upload directly to [Gemini](https://gemini.google.com) (cloud).
 
-![Dirty Gobbler screenshot](screenshots/screenshot.png)
+![Greedy Gobbler screenshot](screenshots/screenshot.png)
 
-# Dirty Gobbler
+# Greedy Gobbler
 
 Lightweight local desktop app that converts documents and websites into clean Markdown for LLM context windows.
 No cloud. No headless browser. Everything runs on your machine.
 
-Dirty Gobbler is a stripped-down variant of Gobbler (full version, not yet published) — single-page URL fetching only, with a much smaller dependency footprint.
+Greedy Gobbler is a stripped-down variant of Gobbler (full version, not yet published) — single-page URL fetching only, with a much smaller dependency footprint.
 
 ## Supported input formats
 
