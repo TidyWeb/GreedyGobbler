@@ -1,5 +1,6 @@
 const urlInput = document.getElementById('url-input');
 const clearBtn = document.getElementById('clear-btn');
+const depthSelect = document.getElementById('depth-select');
 const crawlBtn = document.getElementById('crawl-btn');
 const dropZone = document.getElementById('drop-zone');
 const statusDiv = document.getElementById('status');
@@ -26,6 +27,27 @@ function showView(view) {
 
 btnCleaned.addEventListener('click', () => showView('cleaned'));
 btnRaw.addEventListener('click', () => showView('raw'));
+let progressPoller = null;
+
+function startProgressPolling() {
+    progressPoller = setInterval(async () => {
+        try {
+            const r = await fetch('/progress');
+            const p = await r.json();
+            if (p.pages_done > 0) {
+                const queued = Math.min(p.pages_queued, 25);
+                statusText.textContent = `Crawling... ${p.pages_done} / ${queued} page${queued !== 1 ? 's' : ''}`;
+            }
+        } catch {}
+    }, 1000);
+}
+
+function stopProgressPolling() {
+    if (progressPoller) {
+        clearInterval(progressPoller);
+        progressPoller = null;
+    }
+}
 
 function showStatus(message, isError = false, isLoading = false, isWarning = false) {
     statusText.textContent = message;
@@ -34,8 +56,11 @@ function showStatus(message, isError = false, isLoading = false, isWarning = fal
 }
 
 function isPaywalled(text) {
-    if (text.replace(/\s+/g, ' ').trim().length < 200) return true;
-    return /subscribe|sign in to read|sign up to read|premium content|create an account|members only|subscription required/i.test(text);
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (clean.length < 200) return true;
+    // Only warn if a hard gate phrase appears AND content is short (under 1000 chars)
+    const hardGate = /sign in to read|sign up to read|members only|subscription required|subscribe to continue|unlock this article/i.test(clean);
+    return hardGate && clean.length < 1000;
 }
 
 function updateUIOnSuccess(raw, cleaned, sourceName) {
@@ -59,7 +84,9 @@ async function handleProcessing(inputData, isUrl) {
     if (isUrl) {
         sourceName = inputData;
         fetchOptions.headers = { 'Content-Type': 'application/json' };
-        fetchOptions.body = JSON.stringify({ source: inputData, is_url: true });
+        const depth = parseInt(depthSelect.value, 10);
+        fetchOptions.body = JSON.stringify({ source: inputData, is_url: true, depth: depth });
+        startProgressPolling();
     } else {
         sourceName = inputData.name;
         const formData = new FormData();
@@ -69,6 +96,7 @@ async function handleProcessing(inputData, isUrl) {
 
     try {
         const response = await fetch('/process', { ...fetchOptions });
+        stopProgressPolling();
         const result = await response.json();
 
         if (result.status === 'success') {
@@ -82,6 +110,7 @@ async function handleProcessing(inputData, isUrl) {
             showStatus("Error: " + result.message, true);
         }
     } catch (err) {
+        stopProgressPolling();
         showStatus("Connection error: " + err.message, true);
     }
 }
@@ -109,7 +138,7 @@ async function triggerSave() {
         const response = await fetch('/download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: fileName, content: currentContent })
+            body: JSON.stringify({ filename: fileName, content: outputPreview.innerText })
         });
         const result = await response.json();
         if (result.status === 'success') showStatus("Saved to: " + result.path);
@@ -119,7 +148,7 @@ async function triggerSave() {
 }
 
 copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(currentContent);
+    navigator.clipboard.writeText(outputPreview.innerText);
     copyBtn.textContent = "Copied!";
     setTimeout(() => copyBtn.textContent = "Copy", 2000);
 });

@@ -1,44 +1,40 @@
-Thanks for your interest in this filthy little file. Greedy Gobbler is a small personal tool — designed to consume and crunch-up the vast steaming piles of human friendly media that clog our world into simple pelletised machine fodder.
+Thanks for your interest in this filthy little file. Greedy Gobbler is a small personal tool designed to consume and crunch up human-friendly media into simple machine-readable Markdown.
 
-DG will eat most things - even handwritten guff (within the limitations of Tesseract) but Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) (local, free) or upload directly to [Gemini](https://gemini.google.com) (cloud).
+Greedy Gobbler will eat most text-heavy things, including OCR for images and PDFs within the limits of Tesseract. Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) locally or upload directly to [Gemini](https://gemini.google.com).
 
 ![Greedy Gobbler screenshot](screenshots/greedy-gobbler-screenshot.png)
 
 # Greedy Gobbler
 
-Lightweight local desktop app that converts documents and websites into clean Markdown for LLM context windows.
-No cloud. No headless browser. Everything runs on your machine.
-
-Greedy Gobbler is a stripped-down variant of Gobbler (full version, not yet published) — single-page URL fetching only, with a much smaller dependency footprint.
+Local desktop app that converts documents, ebooks, PDFs, images, and websites into clean Markdown for LLM context windows.
+No cloud is required for local files. URL extraction can use local crawling and Microlink fallback.
 
 ## Supported input formats
 
 | Format | Handler | Status |
 |--------|---------|--------|
-| PDF | MarkItDown (`pdfminer.six` + `pdfplumber`) | ✅ |
-| DOCX | MarkItDown (`mammoth`) | ✅ |
-| XLSX | MarkItDown (`openpyxl`) | ✅ |
-| PPTX | MarkItDown (`python-pptx`) | ✅ |
-| CSV | MarkItDown | ✅ |
-| TXT | MarkItDown | ✅ |
-| HTML | MarkItDown | ✅ |
-| RTF | `striprtf` (custom path, bypasses MarkItDown) | ✅ |
-| JPG / PNG | `pytesseract` OCR (custom path, bypasses MarkItDown) | ✅ |
-| ODT | Not supported — no MarkItDown converter exists | ❌ |
+| PDF | `pdfplumber`, MarkItDown fallback, image OCR fallback | Supported |
+| EPUB | `EbookLib` body extraction | Supported |
+| MOBI / AZW / FB2 / LRF / HTMLZ | Calibre `ebook-convert`, when installed | Supported when Calibre is installed |
+| DjVu | `djvutxt`, when installed | Supported when DjVu tools are installed |
+| DOCX / XLSX / PPTX / CSV / TXT / HTML | MarkItDown | Supported |
+| JPG / JPEG / PNG | `pytesseract` OCR | Supported |
+| Video | Not supported | Not supported |
 
-**URLs:** Single-page fetch via `requests` + `markdownify`. No JavaScript rendering. No multi-page crawling.
+**URLs:** single-page extraction uses Microlink first, then Crawl4AI fallback. Depth 2 crawling stays on the same domain and is capped at 25 pages.
 
 ## Features
 
 - Drag-and-drop file upload
-- Single-page URL fetch
-- Markdown cleaning pipeline: strips navigation menus, cookie notices, boilerplate, and duplicate blocks
-- Paywall detection: amber warning with HTML-save tip when content looks thin or gated
+- URL crawling with configurable depth
+- Markdown cleaning pipeline for navigation, cookie notices, boilerplate, Reddit chrome, duplicated blocks, and site UI clutter
+- Front/back matter trimming for EPUB and PDF body extraction
 - Raw / Normalised toggle to compare output before and after cleaning
+- Editable output preview before copy/save
 - Copy to clipboard or save as `.md` to `~/Downloads/GreedyGobbler/`
-- Smart filename generation: `domain-slug.md` from URL structure
+- Smart filename generation from URL structure
 
-## Running with Docker (recommended)
+## Running with Docker
 
 Requires [Docker](https://docs.docker.com/get-docker/) installed.
 
@@ -62,16 +58,16 @@ Then open [http://127.0.0.1:5001](http://127.0.0.1:5001) in your browser.
 
 ## Project structure
 
-```
-app.py              Flask server (routes: /, /process, /download)
-converter.py        Orchestration: custom RTF + OCR paths, MarkItDown for everything else, requests for URLs
+```text
+app.py              Flask server (routes: /, /process, /download, /progress)
+converter.py        Orchestration for URLs, files, ebooks, PDF extraction, and OCR
 pipeline/
   normaliser.py     Deterministic Markdown cleaning pipeline
 static/
   index.html        UI
   app.js            Frontend logic
 launch.sh           Launcher script
-requirements.txt    All direct dependencies
+requirements.txt    Python dependencies
 ```
 
 ## Dependencies
@@ -79,7 +75,10 @@ requirements.txt    All direct dependencies
 | Package | Purpose |
 |---------|---------|
 | Flask | Web server |
-| `markitdown[pdf,docx,xlsx,pptx]` | File-to-Markdown conversion |
-| `pytesseract` + `Pillow` | OCR for JPG / PNG |
-| `striprtf` | RTF extraction |
-| `requests` + `beautifulsoup4` + `markdownify` | URL fetching |
+| MarkItDown | General file-to-Markdown conversion |
+| Crawl4AI | URL crawling and Markdown extraction |
+| `pdfplumber` + `pdf2image` | PDF text extraction and OCR fallback |
+| `EbookLib` + BeautifulSoup | EPUB body extraction |
+| `pytesseract` + Pillow | OCR for images and scanned PDFs |
+| Calibre `ebook-convert` | Optional conversion for MOBI/AZW/FB2/LRF/HTMLZ |
+| DjVu tools | Optional text extraction for DjVu files |

@@ -92,6 +92,21 @@
         #url-input:focus { border-color: var(--green-primary); }
         #url-input::placeholder { color: var(--text-muted); }
 
+        #depth-select {
+            padding: 12px 18px;
+            border: 1.5px solid var(--green-light);
+            border-radius: 50px;
+            background: var(--white);
+            font-family: inherit;
+            font-size: 0.9rem;
+            color: var(--green-house);
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #depth-select:focus { border-color: var(--green-primary); }
+
         /* ── Buttons ──────────────────────────────────────── */
         .btn {
             padding: 12px 28px;
@@ -290,6 +305,10 @@
     <div id="url-zone">
         <input type="text" id="url-input" placeholder="Enter website URL (e.g., https://example.com)">
         <button id="clear-btn" class="btn btn-ghost">Clear</button>
+        <select id="depth-select" title="How many link levels deep to crawl">
+            <option value="1">Depth 1</option>
+            <option value="2">Depth 2</option>
+        </select>
         <button id="crawl-btn" class="btn">Process URL</button>
     </div>
     <div id="drop-zone">
@@ -314,7 +333,7 @@
                 <button id="save-btn" class="btn" disabled>Save .md</button>
             </div>
         </div>
-        <div id="output-preview">No content loaded yet...</div>
+        <div id="output-preview" contenteditable="true" spellcheck="false">No content loaded yet...</div>
     </div>
     <script src="static/app.js"></script>
 </body>

@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 from werkzeug.utils import secure_filename
-from converter import process_input
+from converter import process_input, crawl_progress
 
 app = Flask(__name__)
 
@@ -59,6 +59,10 @@ def download():
         return jsonify({"status": "success", "path": save_path})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/progress')
+def progress():
+    return jsonify(crawl_progress)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
