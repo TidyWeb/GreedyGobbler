@@ -3,7 +3,7 @@
 
 APP_DIR="/home/Phil/projects/GreedyGobbler"
 URL="http://127.0.0.1:5001/"
-LOG="/tmp/dirtygobbler.log"
+LOG="/tmp/greedygobbler.log"
 
 cd "$APP_DIR"
 

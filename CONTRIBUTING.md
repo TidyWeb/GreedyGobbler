@@ -20,4 +20,6 @@ No formal style guide. Just match the existing code's tone and simplicity.
 
 ## Known limitations
 
-**ODT files are not supported.** MarkItDown (the underlying conversion library) has no ODT converter, and there is no plan to add a custom one. Please don't open issues or PRs for ODT support.
+**ODT files are not supported.** MarkItDown has no ODT converter, and there is no plan to add a custom one. Please don't open issues or PRs for ODT support.
+
+Some ebook formats require external tools: MOBI/AZW/FB2/LRF/HTMLZ need Calibre's `ebook-convert`, and DjVu files need `djvutxt`. If reporting one of those paths, include whether the relevant tool is installed.
