@@ -1,8 +1,21 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_BROWSER: ${INSTALL_BROWSER:-false}
+        INSTALL_COMPRESSION: ${INSTALL_COMPRESSION:-false}
+        PRELOAD_TOKENIZERS: ${PRELOAD_TOKENIZERS:-true}
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
+    environment:
+      SAVE_DIR: /data/saves
+      TEMP_DIR: /data/temp
+      TIKTOKEN_CACHE_DIR: /opt/gobbler/tokenizers
+      HOST: 0.0.0.0
+      PORT: 5001
     volumes:
-      - ./output:/home/Phil/Downloads/GreedyGobbler
-      - ./temp:/home/Phil/projects/GreedyGobbler/temp
+      - greedygobbler-data:/data
+
+volumes:
+  greedygobbler-data:

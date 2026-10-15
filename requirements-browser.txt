@@ -1,0 +1,4 @@
+# Optional local browser rendering. Run crawl4ai-setup after installation.
+Crawl4AI==0.8.6
+patchright==1.60.0
+playwright==1.60.0

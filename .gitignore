@@ -1,6 +1,8 @@
 .venv/
-temp/
 __pycache__/
-*.pyc
+*.py[cod]
+.data/
+.test-artifacts/
+output/
 uploads/
-/home/Phil/Downloads/GreedyGobbler/
+temp/

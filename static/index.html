@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="application-name" content="Greedy Gobbler Local">
     <title>Greedy Gobbler - Machine Readable Conversion</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -291,6 +292,58 @@
             font-family: inherit;
             font-size: 0.88rem;
             line-height: 1.75;
+            resize: vertical;
+            tab-size: 4;
+        }
+        #output-preview:not(:disabled) { color: var(--green-house); }
+
+        /* ── Compact processing controls ─────────────────── */
+        .processing-controls { display: grid; gap: 10px; margin: 4px 0 16px; }
+        .control-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; }
+        .control-group { display: grid; gap: 4px; min-width: 130px; }
+        .control-group.grow { flex: 1 1 250px; }
+        .control-group label, .control-label { color: var(--green-house); font-size: 0.78rem; font-weight: 700; }
+        .control-group input, .control-group select {
+            min-width: 0;
+            padding: 8px 12px;
+            border: 1.5px solid var(--green-light);
+            border-radius: 10px;
+            background: var(--white);
+            color: var(--green-house);
+            font: inherit;
+            font-size: 0.88rem;
+        }
+        .control-group input:focus, .control-group select:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+        .check-control { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; color: var(--green-house); font-size: 0.84rem; }
+        .check-control input { accent-color: var(--green-primary); }
+        #advanced-controls { border-top: 1px solid var(--green-light); padding-top: 8px; }
+        #advanced-controls summary { width: fit-content; color: var(--green-primary); cursor: pointer; font-size: 0.84rem; font-weight: 700; }
+        #advanced-controls .control-row { padding-top: 10px; }
+        .control-help { color: var(--text-muted); font-size: 0.76rem; }
+        #output-stats, #output-notes, #draft-count { margin: 5px 0 8px; font-size: 0.8rem; color: var(--text-muted); }
+        #output-notes:empty { display: none; }
+        #output-notes { white-space: pre-line; }
+        .preview-header { gap: 10px; flex-wrap: wrap; }
+        .preview-meta { flex-wrap: wrap; }
+        #toggle-container { flex-wrap: wrap; }
+        .toggle-btn { min-height: 32px; }
+        #file-input { display: none; }
+
+        @media (max-width: 640px) {
+            body { margin: 24px auto; padding: 0 16px 40px; }
+            header { justify-content: center; gap: 16px; margin-bottom: 24px; }
+            #logo { height: 104px; }
+            h1 { font-size: clamp(2.2rem, 10vw, 3.2rem); }
+            .subtitle { font-size: 0.82rem; }
+            #url-zone { flex-wrap: wrap; }
+            #url-input { flex-basis: 100%; }
+            #url-zone > button, #depth-select { flex: 1 1 auto; }
+            #drop-zone { padding: 30px 16px; }
+            .preview-header { align-items: flex-start; }
+            .preview-meta { width: 100%; }
+            #button-container { width: 100%; }
+            #button-container .btn { flex: 1; padding-left: 12px; padding-right: 12px; }
+            #output-preview { height: 360px; padding: 16px; }
         }
     </style>
 </head>
@@ -303,7 +356,7 @@
         </div>
     </header>
     <div id="url-zone">
-        <input type="text" id="url-input" placeholder="Enter website URL (e.g., https://example.com)">
+        <input type="url" id="url-input" placeholder="Enter website URL (e.g., https://example.com)" aria-label="Website URL">
         <button id="clear-btn" class="btn btn-ghost">Clear</button>
         <select id="depth-select" title="How many link levels deep to crawl">
             <option value="1">Depth 1</option>
@@ -311,21 +364,97 @@
         </select>
         <button id="crawl-btn" class="btn">Process URL</button>
     </div>
-    <div id="drop-zone">
+    <div id="drop-zone" role="button" tabindex="0" aria-label="Choose a document or drop it here">
         <strong>Drag and drop files here</strong>
         <small>.pdf, .docx, .xlsx, .pptx, .html, .epub, .csv, images &amp; more</small>
     </div>
-    <div id="status">
+    <input type="file" id="file-input" accept=".pdf,.docx,.xlsx,.pptx,.html,.htm,.epub,.csv,.txt,.md,.rtf,.jpg,.jpeg,.png,.webp">
+    <section class="processing-controls" aria-label="Processing options">
+        <div class="control-row">
+            <div class="control-group">
+                <label for="profile-select">Extraction profile</label>
+                <select id="profile-select">
+                    <option value="document">Document</option>
+                    <option value="web">Web page</option>
+                    <option value="reddit">Reddit</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="max-tokens">Context budget</label>
+                <input id="max-tokens" type="number" min="1" step="1" value="8000">
+            </div>
+            <div class="control-group">
+                <label for="mode-select">Selection mode</label>
+                <select id="mode-select">
+                    <option value="faithful">Faithful</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="focused">Focused</option>
+                </select>
+            </div>
+            <label class="check-control" for="trim-body" title="May omit recognized front matter from the cleaned output."><input id="trim-body" type="checkbox"> Trim book front matter</label>
+        </div>
+        <div class="control-row">
+            <div class="control-group grow">
+                <label for="question-input">Question for Focused mode (optional)</label>
+                <input id="question-input" type="text" placeholder="What should the context help answer?">
+            </div>
+        </div>
+        <details id="advanced-controls">
+            <summary>More context and website controls</summary>
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="tokenizer-select">Count with</label>
+                    <select id="tokenizer-select">
+                        <option value="cl100k_base">cl100k_base</option>
+                        <option value="o200k_base">o200k_base</option>
+                        <option value="utf8_bytes">UTF-8 byte bound</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="context-window">Model context window</label>
+                    <input id="context-window" type="number" min="1" step="1" placeholder="Optional">
+                </div>
+            </div>
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="reserved-tokens">Reserved for prompt</label>
+                    <input id="reserved-tokens" type="number" min="0" step="1" value="0">
+                </div>
+                <div class="control-group">
+                    <label for="answer-tokens">Reserved for answer</label>
+                    <input id="answer-tokens" type="number" min="0" step="1" value="0">
+                </div>
+                <div class="control-group">
+                    <label for="compression-select">Learned compression</label>
+                    <select id="compression-select">
+                        <option value="none">Off</option>
+                        <option value="llmlingua2">LLMLingua-2 (experimental)</option>
+                    </select>
+                    <small class="control-help">Requires a local model configured by the app.</small>
+                </div>
+                <div class="control-group">
+                    <label for="compression-rate">Compression rate</label>
+                    <input id="compression-rate" type="number" min="0.01" max="1" step="0.05" value="0.5">
+                </div>
+            </div>
+            <div class="control-row">
+                <label class="check-control" for="use-browser"><input id="use-browser" type="checkbox"> Use local browser rendering for websites</label>
+                <label class="check-control" for="allow-remote"><input id="allow-remote" type="checkbox"> Allow Microlink cloud extraction</label>
+            </div>
+        </details>
+    </section>
+    <div id="status" role="status" aria-live="polite">
         <div class="spinner" id="loading-spinner"></div>
         <span id="status-text">Ready to process.</span>
     </div>
     <div class="preview-container">
         <div class="preview-header">
             <div class="preview-meta">
-                <span class="preview-label">Content Preview</span>
+            <span class="preview-label">Content Preview</span>
                 <div id="toggle-container">
-                    <button class="toggle-btn active" id="btn-cleaned">Normalised</button>
-                    <button class="toggle-btn" id="btn-raw">Raw</button>
+                    <button class="toggle-btn" id="btn-raw" type="button">Raw</button>
+                    <button class="toggle-btn" id="btn-cleaned" type="button">Cleaned</button>
+                    <button class="toggle-btn" id="btn-context" type="button">Context</button>
                 </div>
             </div>
             <div id="button-container">
@@ -333,8 +462,11 @@
                 <button id="save-btn" class="btn" disabled>Save .md</button>
             </div>
         </div>
-        <div id="output-preview" contenteditable="true" spellcheck="false">No content loaded yet...</div>
+        <textarea id="output-preview" spellcheck="false" aria-label="Editable content preview" disabled>No content loaded yet...</textarea>
+        <p id="output-stats"></p>
+        <p id="draft-count">Current draft count appears here after processing.</p>
+        <p id="output-notes"></p>
     </div>
-    <script src="static/app.js"></script>
+    <script src="static/app.js?v=plan003"></script>
 </body>
 </html>
