@@ -9,6 +9,9 @@ __pycache__/
 # Validation outputs and development-only material
 .test-artifacts/
 .playwright-cli/
+.data/
+uploads/
+temp/
 output/
 plans/
 tests/
