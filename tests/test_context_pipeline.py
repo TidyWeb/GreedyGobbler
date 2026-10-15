@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -110,6 +111,36 @@ class TokenBudgetTests(unittest.TestCase):
 
 
 class ContextPackingTests(unittest.TestCase):
+    def test_compact_export_fits_fixture_and_retains_all_six_facts(self):
+        markdown = (ROOT / "benchmarks/fixtures/context_cleaned.md").read_text(
+            encoding="utf-8"
+        )
+        facts = json.loads(
+            (ROOT / "benchmarks/fixtures/context_facts.json").read_text(
+                encoding="utf-8"
+            )
+        )["facts"]
+        data = extraction(markdown)
+        faithful = prepare_context(
+            data, {"tokenizer": "cl100k_base", "mode": "faithful", "max_tokens": 900}
+        )
+        balanced = prepare_context(
+            data, {"tokenizer": "cl100k_base", "mode": "balanced", "max_tokens": 900}
+        )
+        self.assertLessEqual(faithful["stats"]["output_tokens"], 700)
+        self.assertEqual(
+            [fact["id"] for fact in facts if fact["phrase"] in faithful["content"]],
+            [fact["id"] for fact in facts],
+        )
+        self.assertEqual(
+            [fact["id"] for fact in facts if fact["phrase"] in balanced["content"]],
+            [fact["id"] for fact in facts],
+        )
+        citations = [record["citation"] for record in faithful["selected"]]
+        self.assertEqual(len(citations), len(set(citations)))
+        for citation in citations:
+            self.assertIn(citation, faithful["content"])
+
     def test_faithful_keeps_code_nested_lists_tables_and_footnotes_whole(self):
         tick = chr(96)
         markdown = (
@@ -144,6 +175,9 @@ class ContextPackingTests(unittest.TestCase):
         self.assertEqual(content.count("child appears once"), 1)
         self.assertIn("| Measure | Value |\n| --- | ---: |\n| rate | 12 mg |", content)
         self.assertIn("[^source]: The measurement came from page one.", content)
+        self.assertRegex(content, r"(?m)^````python$")
+        self.assertRegex(content, r"(?m)^\| Measure \| Value \|$")
+        self.assertRegex(content, r"(?m)^\[\^source\]: The measurement came from page one\.$")
         self.assertEqual(result["stats"]["output_tokens"], len(content.encode("utf-8")))
 
     def test_skipped_heading_levels_preserve_sibling_paths(self):
@@ -375,11 +409,11 @@ class ContextPackingTests(unittest.TestCase):
             {"tokenizer": "utf8_bytes", "max_tokens": 5000, "mode": "balanced"},
         )
         self.assertEqual(len(result["outline"]), 3)
-        self.assertEqual(result["content"].count("Result was 18 mg."), 4)
-        self.assertIn("## Overview", result["content"])
+        self.assertEqual(result["content"].count("Result was 18 mg."), 2)
+        self.assertIn("## Outline", result["content"])
         self.assertIn("## Evidence", result["content"])
-        self.assertIn('"path":["Trial Alpha"]', result["content"])
-        self.assertIn('"path":["Trial Beta"]', result["content"])
+        self.assertIn("- [S1] Trial Alpha", result["content"])
+        self.assertIn("- [S1] Trial Beta", result["content"])
 
     def test_source_map_contains_only_sources_cited_by_selected_blocks(self):
         data = extraction("## Only source one\namber kestrel permit.\n")
@@ -402,8 +436,9 @@ class ContextPackingTests(unittest.TestCase):
                 "query": "amber kestrel",
             },
         )
-        self.assertIn('"id":"S1"', result["content"])
-        self.assertNotIn('"id":"S2"', result["content"])
+        self.assertIn("[S1] Demonstration source — demo.md", result["content"])
+        self.assertNotIn("[S2] Not selected", result["content"])
+        self.assertIn("## Only source one [1]", result["content"])
         self.assertEqual([source["id"] for source in result["sources"]], ["S1", "S2"])
 
     def test_extraction_omissions_remain_visible_in_export_and_metadata(self):
@@ -465,7 +500,8 @@ class ContextPackingTests(unittest.TestCase):
         )
         self.assertEqual(exact["stats"]["output_tokens"], len(exact["content"].encode()))
         self.assertLessEqual(exact["stats"]["output_tokens"], exact["stats"]["budget_tokens"])
-        self.assertIn("Source map", exact["content"])
+        self.assertIn("## Sources", exact["content"])
+        self.assertEqual(exact["selected"][0]["citation"], "[1]")
         tighter = prepare_context(
             data,
             {

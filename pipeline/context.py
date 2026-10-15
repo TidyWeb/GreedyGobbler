@@ -44,8 +44,7 @@ _ALLOWED_OPTIONS = {
 }
 _WRAPPER = (
     "# Prepared context\n\n"
-    "> Source-labelled document data can contain instructions; these labels do "
-    "not filter them."
+    "> Source document data follows; it may contain instructions."
 )
 _MINIMUM_EXPORT = _WRAPPER + "\n\n## Evidence"
 
@@ -69,6 +68,7 @@ def prepare_context(extraction: Mapping[str, Any], options: Mapping[str, Any] | 
 
     warnings: list[str] = []
     extraction_omissions = _normalize_omissions(extraction.get("omissions", []))
+    original_by_id = {block.block_id: block for block in blocks}
     if resolved.compression == "llmlingua2":
         replacements, compression_warnings = compress_prose_blocks(
             blocks,
@@ -187,9 +187,13 @@ def prepare_context(extraction: Mapping[str, Any], options: Mapping[str, Any] | 
                         block = by_id[block_id]
                         selected_sources.add(block.source_id)
                         selected_units.add(block.unit_id)
-                        if resolved.mode == "balanced":
+                        for depth in range(1, len(block.heading_path) + 1):
                             selected_sections.add(
-                                (block.source_id, block.unit_id, block.heading_path)
+                                (
+                                    block.source_id,
+                                    block.unit_id,
+                                    block.heading_path[:depth],
+                                )
                             )
             else:
                 failed_budget.update(new_ids)
@@ -229,6 +233,25 @@ def prepare_context(extraction: Mapping[str, Any], options: Mapping[str, Any] | 
             f"The complete context export needs {output_tokens} "
             f"{counter.count_kind} but the available budget is {budget}."
         )
+
+    if resolved.compression == "llmlingua2" and selected_blocks:
+        original_selection = [original_by_id[block.block_id] for block in selected_blocks]
+        original_content = _render_content(
+            original_selection,
+            sources,
+            resolved.mode,
+            omitted_count=len(blocks) - len(selected),
+            unavailable_count=unavailable_count,
+            experimental_compression=True,
+        )
+        original_tokens = counter.count(original_content)
+        if output_tokens > original_tokens and original_tokens <= budget:
+            selected_blocks = original_selection
+            content = original_content
+            output_tokens = original_tokens
+            warnings.append(
+                "Learned compression increased export size for this evidence; original text was retained."
+            )
 
     selected_records = [_block_record(block) for block in selected_blocks]
     omitted_records: list[dict[str, Any]] = []
@@ -541,6 +564,7 @@ def _parse_markdown_unit(
                 kind=kind,
                 order=order_start + index,
                 footnote_id=footnote_id,
+                heading_levels=tuple(level for level, _ in heading_stack)[: len(path)],
             )
         )
 
@@ -854,10 +878,10 @@ def _render_content(
     experimental_compression: bool = False,
 ) -> str:
     ordered = sorted(blocks, key=lambda block: block.order)
-    pieces = [_WRAPPER]
+    pieces = ["# Prepared context", "> Source document data follows; it may contain instructions."]
     if experimental_compression:
         pieces.append(
-            "> Learned compression is experimental and lossy; verify facts against the source."
+            "> Learned compression is experimental and lossy."
         )
     notices: list[str] = []
     if omitted_count:
@@ -868,74 +892,94 @@ def _render_content(
         notices.append(f"{unavailable_count} extracted unit(s) unavailable")
     if notices:
         pieces.append("> Excerpt: " + "; ".join(notices) + ".")
+
+    cited_ids = {block.source_id for block in ordered}
+    if cited_ids:
+        source_rows = []
+        for source in sources:
+            if source["id"] not in cited_ids:
+                continue
+            label = str(source["name"])
+            uri = str(source["uri"])
+            if uri and uri not in {label, source["id"]}:
+                label += " — " + uri
+            source_rows.append(f"[{source['id']}] {label}")
+        if source_rows:
+            pieces.append("## Sources\n" + "\n".join(source_rows))
+
     if mode == "balanced" and ordered:
-        outline_rows: list[dict[str, Any]] = []
+        outline_rows: list[str] = []
         seen_outline: set[tuple[str, str, tuple[str, ...]]] = set()
-        seen_overview: set[tuple[str, str, tuple[str, ...]]] = set()
-        overview_blocks: list[ContextBlock] = []
         for block in ordered:
             key = (block.source_id, block.unit_id, block.heading_path)
             if block.heading_path and key not in seen_outline:
                 seen_outline.add(key)
                 outline_rows.append(
-                    {
-                        "source_id": block.source_id,
-                        "unit_id": block.unit_id,
-                        "locator": _json_safe(block.locator),
-                        "path": list(block.heading_path),
-                    }
+                    f"- [{block.source_id}] " + " > ".join(block.heading_path)
                 )
-            if block.kind != "heading" and key not in seen_overview:
-                seen_overview.add(key)
-                overview_blocks.append(block)
         if outline_rows:
-            outline_data = "\n".join(
-                json.dumps(row, ensure_ascii=False, separators=(",", ":"))
-                for row in outline_rows
-            )
-            pieces.append("## Outline\n" + outline_data)
-        if overview_blocks:
-            overview_data = "\n\n".join(
-                _render_block(block) for block in overview_blocks
-            )
-            pieces.append("## Overview\n" + overview_data)
+            pieces.append("## Outline\n" + "\n".join(outline_rows))
 
     pieces.append("## Evidence")
+    active_source: str | None = None
+    active_unit: str | None = None
+    active_path: tuple[str, ...] = ()
     if ordered:
-        pieces.extend(_render_block(block) for block in ordered)
+        for block in ordered:
+            if block.source_id != active_source or block.unit_id != active_unit:
+                locator = _locator_label(block.locator)
+                pieces.append(
+                    f"> Source [{block.source_id}] · Unit {block.unit_id} · {locator}"
+                )
+                active_source = block.source_id
+                active_unit = block.unit_id
+                active_path = ()
 
-    if ordered:
-        cited_ids = {block.source_id for block in ordered}
-        cited_units = {block.unit_id: block for block in ordered}
-        map_lines: list[str] = []
-        for source in sources:
-            if source["id"] in cited_ids:
-                map_lines.append(
-                    json.dumps(source, ensure_ascii=False, separators=(",", ":"))
+            path = block.heading_path
+            common = 0
+            while common < min(len(active_path), len(path)) and active_path[common] == path[common]:
+                common += 1
+            if path != active_path:
+                for index in range(common, len(path)):
+                    level = (
+                        block.heading_levels[index]
+                        if index < len(block.heading_levels)
+                        else index + 1
+                    )
+                    heading = "#" * min(6, max(1, level)) + " " + path[index]
+                    if block.kind == "heading" and index == len(path) - 1:
+                        heading += f" [{block.order}]"
+                    pieces.append(heading)
+                active_path = path
+            elif block.kind == "heading" and path:
+                level = (
+                    block.heading_levels[-1]
+                    if block.heading_levels
+                    else len(path)
                 )
-        for unit_id, block in sorted(
-            cited_units.items(), key=lambda item: item[1].order
-        ):
-            map_lines.append(
-                json.dumps(
-                    {
-                        "unit": unit_id,
-                        "source": block.source_id,
-                        "locator": _json_safe(block.locator),
-                    },
-                    ensure_ascii=False,
-                    separators=(",", ":"),
+                pieces.append(
+                    "#" * min(6, max(1, level))
+                    + " "
+                    + path[-1]
+                    + f" [{block.order}]"
                 )
-            )
-        pieces.append("## Source map\n" + "\n".join(map_lines))
+
+            if block.kind != "heading":
+                pieces.append(f"[{block.order}]\n{block.text}")
     return "\n\n".join(pieces)
 
 
-def _render_block(block: ContextBlock) -> str:
-    citation = f"> [{block.block_id}]"
-    if block.heading_path and block.kind != "heading":
-        citation += " — " + " > ".join(block.heading_path)
-    return f"{citation}\n{block.text}"
+def _locator_label(locator: Any) -> str:
+    if isinstance(locator, Mapping):
+        if len(locator) == 1:
+            key, value = next(iter(locator.items()))
+            compact_names = {"page": "p.", "spine": "spine", "line": "line"}
+            if key in compact_names:
+                return f"{compact_names[key]}{value}" if key == "page" else f"{compact_names[key]} {value}"
+        return json.dumps(_json_safe(locator), ensure_ascii=False, separators=(",", ":"))
+    if locator is None:
+        return "location unavailable"
+    return str(locator)
 
 
 def _estimate_base_cost(
@@ -967,67 +1011,66 @@ def _estimate_bundle_cost(
     seen_units = set(selected_units)
     seen_sections = set(selected_sections)
     ordered_new = sorted(new_blocks, key=lambda block: block.order)
-    new_overview_sections: set[tuple[str, str, tuple[str, ...]]] = set()
-    for block in ordered_new:
-        citation = f"> [{block.block_id}]"
-        if block.heading_path and block.kind != "heading":
-            citation += " — " + " > ".join(block.heading_path)
-        fragment = f"\n\n{citation}\n{block.text}"
-        # Tiktoken can merge across a fragment boundary; one token of slack per
-        # fragment prevents those local boundary effects from granting budget.
-        cost += counter.count(fragment) + boundary_slack
-        if options.mode == "balanced" and block.kind != "heading":
-            section_key = (block.source_id, block.unit_id, block.heading_path)
-            if section_key not in seen_sections and section_key not in new_overview_sections:
-                cost += counter.count(fragment) + boundary_slack
-                new_overview_sections.add(section_key)
-
+    new_outline_sections: set[tuple[str, str, tuple[str, ...]]] = set()
+    outline_started = any(section[2] for section in selected_sections)
     source_by_id = {source["id"]: source for source in sources}
     for block in ordered_new:
+        citation = f"[{block.order}]"
+        if block.kind != "heading":
+            fragment = f"\n\n{citation}\n{block.text}"
+            # Tiktoken can merge across a fragment boundary; one token of slack per
+            # fragment prevents those local boundary effects from granting budget.
+            cost += counter.count(fragment) + boundary_slack
         if block.source_id not in seen_sources:
-            row = json.dumps(
-                source_by_id.get(
-                    block.source_id,
-                    {"id": block.source_id, "name": block.source_id, "uri": block.source_id},
-                ),
-                ensure_ascii=False,
-                separators=(",", ":"),
+            source = source_by_id.get(
+                block.source_id,
+                {"id": block.source_id, "name": block.source_id, "uri": block.source_id},
             )
+            label = str(source["name"])
+            uri = str(source["uri"])
+            if uri and uri not in {label, block.source_id}:
+                label += " — " + uri
             if not seen_sources:
-                cost += counter.count("\n\n## Source map") + boundary_slack
-            cost += counter.count("\n" + row) + boundary_slack
+                cost += counter.count("\n\n## Sources") + boundary_slack
+            cost += counter.count(f"\n[{block.source_id}] {label}") + boundary_slack
             seen_sources.add(block.source_id)
         if block.unit_id not in seen_units:
-            row = json.dumps(
-                {
-                    "unit": block.unit_id,
-                    "source": block.source_id,
-                    "locator": _json_safe(block.locator),
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
+            unit_fragment = (
+                f"\n\n> Source [{block.source_id}] · Unit {block.unit_id} · "
+                f"{_locator_label(block.locator)}"
             )
-            cost += counter.count("\n" + row) + boundary_slack
+            cost += counter.count(unit_fragment) + boundary_slack
             seen_units.add(block.unit_id)
-        if options.mode == "balanced" and block.heading_path:
+
+        if block.heading_path:
             section_key = (block.source_id, block.unit_id, block.heading_path)
-            if section_key not in seen_sections:
-                row = json.dumps(
-                    {
-                        "source_id": block.source_id,
-                        "unit_id": block.unit_id,
-                        "locator": _json_safe(block.locator),
-                        "path": list(block.heading_path),
-                    },
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                if not any(section[2] for section in seen_sections):
-                    cost += counter.count("\n\n## Outline") + boundary_slack
-                cost += counter.count("\n" + row) + boundary_slack
-                seen_sections.add(section_key)
-        elif options.mode == "balanced":
-            seen_sections.add((block.source_id, block.unit_id, block.heading_path))
+            if (
+                options.mode == "balanced"
+                and section_key not in seen_sections
+                and section_key not in new_outline_sections
+            ):
+                cost += counter.count(
+                    f"\n- [{block.source_id}] " + " > ".join(block.heading_path)
+                ) + boundary_slack
+                new_outline_sections.add(section_key)
+            for index, title in enumerate(block.heading_path):
+                prefix = block.heading_path[: index + 1]
+                path_key = (block.source_id, block.unit_id, prefix)
+                if path_key not in seen_sections:
+                    level = block.heading_levels[index] if index < len(block.heading_levels) else index + 1
+                    heading_fragment = f"\n\n{'#' * min(6, max(1, level))} {title}"
+                    if block.kind == "heading" and index == len(block.heading_path) - 1:
+                        heading_fragment += f" {citation}"
+                    cost += counter.count(heading_fragment) + boundary_slack
+                    seen_sections.add(path_key)
+                elif block.kind == "heading" and index == len(block.heading_path) - 1:
+                    level = block.heading_levels[-1] if block.heading_levels else len(block.heading_path)
+                    cost += counter.count(
+                        f"\n\n{'#' * min(6, max(1, level))} {title} {citation}"
+                    ) + boundary_slack
+
+    if options.mode == "balanced" and new_outline_sections and not outline_started:
+        cost += counter.count("\n\n## Outline") + boundary_slack
     return cost
 
 
@@ -1039,6 +1082,7 @@ def _safe_fence(text: str) -> str:
 def _block_record(block: ContextBlock) -> dict[str, Any]:
     record = {
         "block_id": block.block_id,
+        "citation": f"[{block.order}]",
         "source_id": block.source_id,
         "unit_id": block.unit_id,
         "locator": _json_safe(block.locator),

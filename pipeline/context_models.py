@@ -20,6 +20,7 @@ class ContextBlock:
     order: int
     footnote_refs: tuple[str, ...] = field(default_factory=tuple)
     footnote_id: str | None = None
+    heading_levels: tuple[int, ...] = field(default_factory=tuple)
 
     @property
     def section(self) -> str:

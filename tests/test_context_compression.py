@@ -30,6 +30,86 @@ def block(block_id: str, text: str, kind: str = "paragraph") -> ContextBlock:
 
 
 class CompressorTests(unittest.TestCase):
+    def test_context_reverts_whole_export_inflation_for_same_selection(self):
+        original = "A short description of the routine process."
+        extraction = {
+            "raw": original,
+            "cleaned": original,
+            "sources": [{"id": "S1", "name": "Doc", "uri": "doc.md"}],
+            "units": [
+                {
+                    "id": "S1-U0001",
+                    "source_id": "S1",
+                    "locator": "page 1",
+                    "raw": original,
+                    "text": original,
+                }
+            ],
+        }
+
+        def expanding_compressor(blocks, **kwargs):
+            paragraph = next(item for item in blocks if item.kind == "paragraph")
+            return {paragraph.block_id: original + (" added words" * 30)}, []
+
+        with patch("pipeline.context.compress_prose_blocks", side_effect=expanding_compressor):
+            result = prepare_context(
+                extraction,
+                {
+                    "tokenizer": "utf8_bytes",
+                    "max_tokens": 2000,
+                    "compression": "llmlingua2",
+                    "compressor_model": "/fake/local/model",
+                },
+            )
+        self.assertIn(original, result["content"])
+        self.assertNotIn("added words", result["content"])
+        self.assertTrue(
+            any("increased export size" in warning for warning in result["warnings"])
+        )
+
+    def test_context_keeps_more_evidence_when_compressed_set_needs_budget(self):
+        first = "Alpha observation " + ("routine detail " * 20) + "end."
+        second = "Beta observation " + ("routine detail " * 20) + "end."
+        markdown = first + "\n\n" + second
+        extraction = {
+            "raw": markdown,
+            "cleaned": markdown,
+            "sources": [{"id": "S1", "name": "Doc", "uri": "doc.md"}],
+            "units": [
+                {
+                    "id": "S1-U0001",
+                    "source_id": "S1",
+                    "locator": "page 1",
+                    "raw": markdown,
+                    "text": markdown,
+                }
+            ],
+        }
+
+        def shrinking_compressor(blocks, **kwargs):
+            paragraphs = [item for item in blocks if item.kind == "paragraph"]
+            return {
+                paragraphs[0].block_id: "Alpha observation retained.",
+                paragraphs[1].block_id: "Beta observation retained.",
+            }, []
+
+        with patch("pipeline.context.compress_prose_blocks", side_effect=shrinking_compressor):
+            result = prepare_context(
+                extraction,
+                {
+                    "tokenizer": "utf8_bytes",
+                    "max_tokens": 300,
+                    "compression": "llmlingua2",
+                    "compressor_model": "/fake/local/model",
+                },
+            )
+        self.assertEqual(len(result["selected"]), 2)
+        self.assertIn("Alpha observation retained.", result["content"])
+        self.assertIn("Beta observation retained.", result["content"])
+        self.assertLessEqual(
+            result["stats"]["output_tokens"], result["stats"]["budget_tokens"]
+        )
+
     def test_fake_backend_only_receives_unprotected_prose(self):
         eligible = block("b1", "A calm sentence about the general process.")
         protected = block("b2", "The dose is 12 mg and is NOT optional.")
