@@ -72,6 +72,7 @@ def _write_front_matter_pdf(path: Path, chapter_first: bool = False) -> None:
 
 def _write_table_pdf(path: Path) -> None:
     pdf = canvas.Canvas(str(path))
+    pdf.drawString(72, 770, "PROSE_BEFORE_TABLE remains in context.")
     x_positions = [72, 210, 350]
     y_positions = [740, 710, 680]
     for y_position in y_positions:
@@ -81,6 +82,7 @@ def _write_table_pdf(path: Path) -> None:
     for values, y_position in ((('Metric', 'Value'), 721), (('SAMPLE_SIZE', '128'), 691)):
         pdf.drawString(80, y_position, values[0])
         pdf.drawString(220, y_position, values[1])
+    pdf.drawString(72, 650, "PROSE_AFTER_TABLE also remains in context.")
     pdf.showPage()
     pdf.save()
 
@@ -253,6 +255,9 @@ class SourceExtractionRegressionTests(unittest.TestCase):
             def extract_tables(self):
                 return []
 
+            def find_tables(self):
+                return []
+
             def close(self):
                 self.closed = True
 
@@ -273,12 +278,57 @@ class SourceExtractionRegressionTests(unittest.TestCase):
         self.assertIn("PAGE_CACHE_EVIDENCE", result["units"][0]["raw"])
         self.assertEqual(result["metrics"]["per_source"][0]["pages_with_text"], 1)
 
-    def test_pdf_tables_are_bounded_best_effort_blocks_with_duplication_warning(self):
+    def test_pdf_cleaned_text_removes_detected_table_copy_and_keeps_prose(self):
         result = converter.extract_input(str(self.table_pdf))
         self.assertIn("### Structured table extract 1 (best effort)", result["raw"])
-        self.assertIn("| SAMPLE_SIZE | 128 |", result["raw"])
-        self.assertTrue(any("may repeat cells" in warning for warning in result["warnings"]))
-        self.assertIn("Structured table extract", result["cleaned"])
+        self.assertEqual(result["raw"].count("SAMPLE_SIZE"), 2)
+        self.assertEqual(result["raw"].count("128"), 2)
+        self.assertIn("PROSE_BEFORE_TABLE remains in context.", result["raw"])
+        self.assertIn("PROSE_AFTER_TABLE also remains in context.", result["raw"])
+        self.assertIn("| SAMPLE_SIZE | 128 |", result["cleaned"])
+        self.assertEqual(result["cleaned"].count("SAMPLE_SIZE"), 1)
+        self.assertEqual(result["cleaned"].count("128"), 1)
+        self.assertIn("PROSE_BEFORE_TABLE remains in context.", result["cleaned"])
+        self.assertIn("PROSE_AFTER_TABLE also remains in context.", result["cleaned"])
+        self.assertFalse(any("may repeat cells" in warning for warning in result["warnings"]))
+
+    def test_pdf_keeps_native_content_when_table_geometry_cannot_be_verified(self):
+        class FakePage:
+            images = []
+
+            def __init__(self):
+                self.closed = False
+
+            def extract_text(self, **_kwargs):
+                return "SURROUNDING PROSE and SAMPLE_SIZE 128 remain native."
+
+            def find_tables(self):
+                raise RuntimeError("geometry unavailable")
+
+            def extract_tables(self):
+                return [[ ["Metric", "Value"], ["SAMPLE_SIZE", "128"] ]]
+
+            def close(self):
+                self.closed = True
+
+        page = FakePage()
+
+        class FakePdf:
+            pages = [page]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+        with mock.patch("pdfplumber.open", return_value=FakePdf()):
+            result = converter.extract_input(str(self.all_pages_pdf))
+        self.assertTrue(page.closed)
+        self.assertIn("SURROUNDING PROSE and SAMPLE_SIZE 128 remain native.", result["cleaned"])
+        self.assertIn("| SAMPLE_SIZE | 128 |", result["cleaned"])
+        self.assertTrue(any("native text is retained" in warning for warning in result["warnings"]))
+        self.assertTrue(any("cells may repeat" in warning for warning in result["warnings"]))
 
     def test_ocr_failure_is_reported_for_only_the_unextractable_page(self):
         original_ocr = converter._ocr_pdf_page

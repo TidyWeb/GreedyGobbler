@@ -221,31 +221,58 @@ def _page_to_markdown(html: str, page_url: str) -> tuple[str, str, list[str]]:
     return text, clean(cleaned_text, profile="document"), links
 
 
-async def _browser_html(url: str) -> tuple[str, str]:
+def _browser_request_handler(page, requested_host: str, blocked_resources: list[str], blocked_navigation: list[str]):
+    """Build a route policy that permits public subresources but pins navigation."""
+    async def check_route(route):
+        request = route.request
+        request_url = request.url
+        if request_url.startswith(("data:", "blob:", "about:")):
+            await route.continue_()
+            return
+
+        is_main_frame_navigation = False
+        try:
+            if request.is_navigation_request():
+                frame = request.frame
+                try:
+                    is_main_frame_navigation = frame == frame.page.main_frame
+                except Exception:
+                    is_main_frame_navigation = frame == page.main_frame
+        except Exception:
+            # If Playwright cannot identify the request/frame, enforce the stricter navigation rule.
+            is_main_frame_navigation = True
+
+        try:
+            normalized = await asyncio.to_thread(validate_public_url, request_url)
+            if is_main_frame_navigation and _host_name(normalized) != requested_host:
+                raise ConversionError("Browser main-frame navigation crossed outside the requested hostname")
+        except ConversionError as exc:
+            if is_main_frame_navigation:
+                blocked_navigation.append(f"{request_url}: {exc}")
+            else:
+                blocked_resources.append(f"{request_url}: {exc}")
+            await route.abort()
+            return
+
+        await route.continue_()
+
+    return check_route
+
+
+async def _browser_html(url: str) -> tuple[str, str, list[str]]:
     try:
         from crawl4ai import AsyncWebCrawler
     except ImportError as exc:
         raise ConversionError("Browser extraction was requested but Crawl4AI is not installed") from exc
     requested_host = _host_name(url)
-    blocked_requests = []
+    blocked_resources: list[str] = []
+    blocked_navigation: list[str] = []
 
     async def on_page_context_created(page, context, **_kwargs):
-        async def check_route(route):
-            request_url = route.request.url
-            if request_url.startswith(("data:", "blob:", "about:")):
-                await route.continue_()
-                return
-            try:
-                normalized = await asyncio.to_thread(validate_public_url, request_url)
-                if _host_name(normalized) != requested_host:
-                    raise ConversionError("Browser request crossed outside the requested hostname")
-            except ConversionError as exc:
-                blocked_requests.append(str(exc))
-                await route.abort()
-                return
-            await route.continue_()
-
-        await context.route("**", check_route)
+        await context.route(
+            "**",
+            _browser_request_handler(page, requested_host, blocked_resources, blocked_navigation),
+        )
         return page
 
     try:
@@ -254,17 +281,29 @@ async def _browser_html(url: str) -> tuple[str, str]:
             if strategy is None or not callable(getattr(strategy, "set_hook", None)):
                 raise ConversionError("Installed Crawl4AI does not expose the request hook needed for safe browser extraction")
             strategy.set_hook("on_page_context_created", on_page_context_created)
-            result = await crawler.arun(url=url)
-        if blocked_requests:
-            raise ConversionError(f"Browser extraction blocked an unsafe request: {blocked_requests[0]}")
-        if not getattr(result, "success", False):
+            try:
+                result = await crawler.arun(url=url)
+            except Exception as exc:
+                if blocked_navigation:
+                    raise ConversionError(f"Browser blocked an unsafe main-frame navigation: {blocked_navigation[0]}") from exc
+                raise
+        if blocked_navigation:
+            raise ConversionError(f"Browser blocked an unsafe main-frame navigation: {blocked_navigation[0]}")
+        html = getattr(result, "html", None) or getattr(result, "cleaned_html", None) or ""
+        warnings = [f"Browser blocked an unsafe subresource: {detail}" for detail in blocked_resources]
+        if not getattr(result, "success", False) and not html:
+            if blocked_resources:
+                raise ConversionError(
+                    f"Browser extraction could not load {url}; unsafe subresources were blocked: {blocked_resources[0]}"
+                )
             raise ConversionError(f"Browser extraction could not load {url}")
         final_url = getattr(result, "url", None) or url
         final_url = validate_public_url(final_url)
         if _host_name(final_url) != requested_host:
             raise ConversionError("Browser redirect crossed outside the requested hostname")
-        html = getattr(result, "html", None) or getattr(result, "cleaned_html", None) or ""
-        return html, final_url
+        if not getattr(result, "success", False):
+            warnings.append("Browser returned page HTML despite an incomplete resource load.")
+        return html, final_url, warnings
     except ConversionError:
         raise
     except Exception as exc:
@@ -377,7 +416,8 @@ def extract_url_pages(
                 if use_browser:
                     try:
                         validate_public_url(final_url, resolver=resolver)
-                        browser_html, browser_final_url = asyncio.run(_browser_html(final_url))
+                        browser_html, browser_final_url, browser_warnings = asyncio.run(_browser_html(final_url))
+                        warnings.extend(browser_warnings)
                         final_url = browser_final_url
                         browser_text, browser_cleaned, browser_links = _page_to_markdown(browser_html, browser_final_url)
                         if len(browser_text.strip()) > len(text.strip()):

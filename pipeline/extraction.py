@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import posixpath
 import re
@@ -86,19 +87,63 @@ def _table_to_markdown(table: list[list[object]]) -> str:
     return "\n".join(lines)
 
 
-def _extract_pdf_page(path: str, page_number: int, page, ocr_pdf_page, warnings: list[str], ocr_pages: list[int]) -> tuple[str, bool]:
+def _characters_inside_bboxes(char: dict, bboxes: list[tuple[float, float, float, float]]) -> bool:
     try:
-        native_text = page.extract_text(x_tolerance=1, y_tolerance=3) or ""
-        tables = []
+        center_x = (float(char["x0"]) + float(char["x1"])) / 2
+        center_y = (float(char["top"]) + float(char["bottom"])) / 2
+    except (KeyError, TypeError, ValueError):
+        return False
+    return any(x0 <= center_x <= x1 and top <= center_y <= bottom for x0, top, x1, bottom in bboxes)
+
+
+def _extract_pdf_tables(page, page_number: int, warnings: list[str]) -> tuple[list[str], list[tuple[float, float, float, float]], bool]:
+    tables = []
+    bboxes = []
+    geometry_complete = True
+    try:
+        detected_tables = page.find_tables() or []
+    except Exception as exc:
+        geometry_complete = False
+        warnings.append(f"Page {page_number}: table geometry could not be determined ({exc}); native text is retained.")
         try:
             for table in page.extract_tables() or []:
                 markdown_table = _table_to_markdown(table)
                 if markdown_table:
                     tables.append(markdown_table)
+        except Exception as table_exc:
+            warnings.append(f"Page {page_number}: structured table text could not be extracted ({table_exc}).")
+        return tables, bboxes, geometry_complete
+
+    for table in detected_tables:
+        try:
+            markdown_table = _table_to_markdown(table.extract())
         except Exception as exc:
-            warnings.append(f"Page {page_number}: table structure could not be extracted ({exc}).")
+            warnings.append(f"Page {page_number}: structured table text could not be extracted ({exc}).")
+            continue
+        if not markdown_table:
+            continue
+        tables.append(markdown_table)
+        try:
+            bbox = tuple(float(value) for value in table.bbox)
+            if len(bbox) != 4 or not all(math.isfinite(value) for value in bbox):
+                raise ValueError("expected four finite coordinates")
+            x0, top, x1, bottom = bbox
+            if x1 < x0 or bottom < top:
+                raise ValueError("table coordinates are reversed")
+            bboxes.append(bbox)
+        except (AttributeError, TypeError, ValueError) as exc:
+            geometry_complete = False
+            warnings.append(f"Page {page_number}: table text was found but its region could not be determined ({exc}); native text is retained.")
+    return tables, bboxes, geometry_complete
+
+
+def _extract_pdf_page(path: str, page_number: int, page, ocr_pdf_page, warnings: list[str], ocr_pages: list[int]) -> tuple[str, str, bool]:
+    try:
+        native_text = page.extract_text(x_tolerance=1, y_tolerance=3) or ""
+        tables, table_bboxes, table_geometry_complete = _extract_pdf_tables(page, page_number, warnings)
 
         text = native_text
+        used_ocr = False
         needs_ocr = not native_text.strip() or _symbol_garbage_score(native_text) > 0.4
         if needs_ocr:
             try:
@@ -106,6 +151,7 @@ def _extract_pdf_page(path: str, page_number: int, page, ocr_pdf_page, warnings:
                 if ocr_text.strip():
                     if not native_text.strip() or _symbol_garbage_score(ocr_text) < _symbol_garbage_score(native_text):
                         text = ocr_text
+                        used_ocr = True
                     ocr_pages.append(page_number)
                 else:
                     warnings.append(f"Page {page_number}: OCR returned no readable text.")
@@ -119,16 +165,38 @@ def _extract_pdf_page(path: str, page_number: int, page, ocr_pdf_page, warnings:
         if not text.strip() and not tables:
             warnings.append(f"Page {page_number}: no readable text was extracted.")
 
+        cleaned_text = text
+        text_geometry_complete = table_geometry_complete
+        if tables and table_bboxes and not used_ocr:
+            try:
+                filtered_page = page.filter(
+                    lambda item: item.get("object_type") != "char"
+                    or not _characters_inside_bboxes(item, table_bboxes)
+                )
+                cleaned_text = filtered_page.extract_text(x_tolerance=1, y_tolerance=3) or ""
+            except Exception as exc:
+                text_geometry_complete = False
+                warnings.append(f"Page {page_number}: native text could not be safely separated from table regions ({exc}); native text is retained.")
+                cleaned_text = text
+        elif tables and used_ocr:
+            text_geometry_complete = False
+            warnings.append(f"Page {page_number}: OCR text could not be separated from table regions; OCR text is retained.")
+
         page_parts = [text.strip()] if text.strip() else []
         for table_index, table_markdown in enumerate(tables, start=1):
             page_parts.append(f"### Structured table extract {table_index} (best effort)\n\n{table_markdown}")
-        if tables and text.strip():
+        cleaned_parts = [cleaned_text.strip()] if cleaned_text.strip() else []
+        for table_index, table_markdown in enumerate(tables, start=1):
+            cleaned_parts.append(f"### Structured table extract {table_index} (best effort)\n\n{table_markdown}")
+        if tables and text.strip() and not text_geometry_complete:
             warnings.append(
-                f"Page {page_number}: structured table text is shown as a bounded best-effort block and may repeat cells in the page text."
+                f"Page {page_number}: structured table text is shown as a bounded best-effort block; native text was retained because table-region separation could not be verified, so cells may repeat."
             )
         page_body = "\n\n".join(page_parts)
+        cleaned_body = "\n\n".join(cleaned_parts)
         raw = f"## Page {page_number}\n\n{page_body}" if page_body else f"## Page {page_number}"
-        return raw, bool(text.strip() or tables)
+        cleaned = f"## Page {page_number}\n\n{cleaned_body}" if cleaned_body else f"## Page {page_number}"
+        return raw, cleaned, bool(text.strip() or tables)
     finally:
         close = getattr(page, "close", None)
         if callable(close):
@@ -138,7 +206,7 @@ def _extract_pdf_page(path: str, page_number: int, page, ocr_pdf_page, warnings:
                 warnings.append(f"Page {page_number}: layout cache could not be released ({exc}).")
 
 
-def _extract_pdf(path: str, source_id: str, ocr_pdf_page: Callable[[str, int], str]) -> tuple[list[dict], list[str], dict]:
+def _extract_pdf(path: str, source_id: str, ocr_pdf_page: Callable[[str, int], str], profile: str) -> tuple[list[dict], list[str], dict]:
     try:
         import pdfplumber
     except ImportError as exc:
@@ -152,14 +220,14 @@ def _extract_pdf(path: str, source_id: str, ocr_pdf_page: Callable[[str, int], s
         with pdfplumber.open(path) as pdf:
             page_count = len(pdf.pages)
             for page_number, page in enumerate(pdf.pages, start=1):
-                raw, readable = _extract_pdf_page(path, page_number, page, ocr_pdf_page, warnings, ocr_pages)
+                raw, cleaned, readable = _extract_pdf_page(path, page_number, page, ocr_pdf_page, warnings, ocr_pages)
                 readable_pages += int(readable)
                 units.append({
                     "id": f"{source_id}-U{page_number:04d}",
                     "source_id": source_id,
                     "locator": f"page {page_number}",
                     "raw": raw,
-                    "text": clean(raw, profile="document"),
+                    "text": clean(cleaned, profile=profile),
                 })
     except ConversionError:
         raise
@@ -547,9 +615,7 @@ def extract_local(
         raise ConversionError("OpenDocument text files (.odt) are deliberately unsupported")
 
     if extension == ".pdf":
-        units, warnings, metrics = _extract_pdf(path, source_id, ocr_pdf_page or _default_ocr_pdf_page)
-        for unit in units:
-            unit["text"] = clean(unit["raw"], profile=profile)
+        units, warnings, metrics = _extract_pdf(path, source_id, ocr_pdf_page or _default_ocr_pdf_page, profile)
         return units, warnings, metrics
     if extension == ".epub":
         return _extract_epub(path, source_id, profile)

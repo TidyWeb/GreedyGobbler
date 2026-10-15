@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import unittest
 import ipaddress
+import sys
+from types import SimpleNamespace
 from unittest import mock
 
 import converter
@@ -34,6 +37,34 @@ class FakeResponse:
 
     def close(self):
         self.closed = True
+
+
+class FakeBrowserPage:
+    def __init__(self):
+        self.main_frame = object()
+
+
+class FakeBrowserRequest:
+    def __init__(self, url, *, navigation=False, frame=None):
+        self.url = url
+        self._navigation = navigation
+        self.frame = frame
+
+    def is_navigation_request(self):
+        return self._navigation
+
+
+class FakeBrowserRoute:
+    def __init__(self, request):
+        self.request = request
+        self.continued = False
+        self.aborted = False
+
+    async def continue_(self):
+        self.continued = True
+
+    async def abort(self):
+        self.aborted = True
 
 
 def article(title, body, links=""):
@@ -82,6 +113,75 @@ class UrlValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(converter.ConversionError, "Redirect crossed"):
                 web_fetch.fetch_page("https://example.com/start", expected_host="example.com", request_get=fake_get)
         self.assertEqual(seen, ["https://example.com/start"])
+
+    def test_browser_policy_allows_public_cdn_and_blocks_cross_host_navigation_and_private_subresource(self):
+        page = FakeBrowserPage()
+
+        async def exercise():
+            blocked_resources = []
+            blocked_navigation = []
+            handler = web_fetch._browser_request_handler(
+                page, "example.com", blocked_resources, blocked_navigation
+            )
+            cdn = FakeBrowserRoute(FakeBrowserRequest("https://cdn.example.net/site.css"))
+            await handler(cdn)
+            cross_host_navigation = FakeBrowserRoute(FakeBrowserRequest(
+                "https://other.example/article", navigation=True, frame=page.main_frame
+            ))
+            await handler(cross_host_navigation)
+            private_resource = FakeBrowserRoute(FakeBrowserRequest("http://127.0.0.1/private.png"))
+            await handler(private_resource)
+            return cdn, cross_host_navigation, private_resource, blocked_resources, blocked_navigation
+
+        with mock.patch.object(web_fetch, "_resolve_public_addresses", side_effect=safe_resolver):
+            cdn, navigation, private, blocked_resources, blocked_navigation = asyncio.run(exercise())
+        self.assertTrue(cdn.continued)
+        self.assertFalse(cdn.aborted)
+        self.assertTrue(navigation.aborted)
+        self.assertFalse(navigation.continued)
+        self.assertTrue(private.aborted)
+        self.assertFalse(private.continued)
+        self.assertEqual(len(blocked_navigation), 1)
+        self.assertEqual(len(blocked_resources), 1)
+
+    def test_browser_reports_blocked_private_subresource_without_failing_page_extraction(self):
+        page_html = article("Browser Article", "BROWSER_MAIN_CONTENT " * 20)
+
+        class FakeStrategy:
+            def set_hook(self, name, callback):
+                if name != "on_page_context_created":
+                    raise AssertionError(name)
+                self.hook = callback
+
+        class FakeContext:
+            async def route(self, _pattern, handler):
+                self.handler = handler
+
+        class FakeCrawler:
+            def __init__(self):
+                self.crawler_strategy = FakeStrategy()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return False
+
+            async def arun(self, url):
+                page = FakeBrowserPage()
+                context = FakeContext()
+                await self.crawler_strategy.hook(page, context)
+                private_resource = FakeBrowserRoute(FakeBrowserRequest("http://10.0.0.1/private.png"))
+                await context.handler(private_resource)
+                return SimpleNamespace(success=True, url=url, html=page_html)
+
+        fake_module = SimpleNamespace(AsyncWebCrawler=FakeCrawler)
+        with mock.patch.dict(sys.modules, {"crawl4ai": fake_module}):
+            with mock.patch.object(web_fetch, "_resolve_public_addresses", side_effect=safe_resolver):
+                html, final_url, warnings = asyncio.run(web_fetch._browser_html("https://example.com/article"))
+        self.assertIn("BROWSER_MAIN_CONTENT", html)
+        self.assertEqual(final_url, "https://example.com/article")
+        self.assertTrue(any("unsafe subresource" in warning for warning in warnings))
 
 
 class UrlExtractionTests(unittest.TestCase):
@@ -229,16 +329,21 @@ class UrlExtractionTests(unittest.TestCase):
     def test_browser_fallback_runs_for_empty_javascript_page_only_when_requested(self):
         empty_html = "<html><head><title>App</title></head><body><main></main></body></html>"
         rendered_html = article("Rendered App", "BROWSER_RENDERED_EVIDENCE " * 18)
-        browser = mock.AsyncMock(return_value=(rendered_html, "https://example.com/app"))
+        browser = mock.AsyncMock(return_value=(
+            rendered_html,
+            "https://example.com/app",
+            ["Browser blocked an unsafe subresource: http://127.0.0.1/private.png"],
+        ))
         with mock.patch.object(web_fetch.requests, "get", return_value=FakeResponse(empty_html)):
             with mock.patch.object(web_fetch, "_browser_html", browser):
                 result = converter.extract_input("https://example.com/app", is_url=True, use_browser=True)
         self.assertIn("BROWSER_RENDERED_EVIDENCE", result["raw"])
+        self.assertTrue(any("unsafe subresource" in warning for warning in result["warnings"]))
         browser.assert_awaited_once()
 
     def test_browser_fallback_can_recover_from_a_safe_static_http_failure(self):
         rendered_html = article("Rendered Error Page", "BROWSER_AFTER_HTTP_FAILURE " * 18)
-        browser = mock.AsyncMock(return_value=(rendered_html, "https://example.com/rendered"))
+        browser = mock.AsyncMock(return_value=(rendered_html, "https://example.com/rendered", []))
         with mock.patch.object(web_fetch.requests, "get", return_value=FakeResponse("", status=503)):
             with mock.patch.object(web_fetch, "_browser_html", browser):
                 result = converter.extract_input("https://example.com/rendered", is_url=True, use_browser=True)
@@ -257,7 +362,7 @@ class UrlExtractionTests(unittest.TestCase):
         def private_redirect(_url, **_kwargs):
             return FakeResponse(status=302, headers={"Location": "http://127.0.0.1/admin"})
 
-        browser = mock.AsyncMock(return_value=(article("Unsafe", "SHOULD_NOT_APPEAR " * 20), "http://127.0.0.1/admin"))
+        browser = mock.AsyncMock(return_value=(article("Unsafe", "SHOULD_NOT_APPEAR " * 20), "http://127.0.0.1/admin", []))
         with mock.patch.object(web_fetch.requests, "get", side_effect=private_redirect):
             with mock.patch.object(web_fetch, "_browser_html", browser):
                 with self.assertRaisesRegex(converter.ConversionError, "not allowed"):
