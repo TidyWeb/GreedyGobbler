@@ -1,4 +1,4 @@
-Thanks for your interest in this greedy little repo. Greedy Gobbler is a small personal tool designed to consume and crunch up human-friendly media into simple machine-readable Markdown.  It is built to crunch up and remove bloat from information - rendering it into bitesize info pellets suitable for efficient digestion by any LLM via their context window.  It is an efficiency maximiser.
+Thanks for your interest in this greedy little repo. Greedy Gobbler is a small personal tool designed to consume and chew up human-friendly media into simple machine-readable Markdown.  It is built to crunch up and remove bloat and padding from information - rendering it into bitesize info pellets suitable for efficient digestion by any LLM via their context window.  It is an efficiency maximiser.
 
 Greedy Gobbler will eat most text-heavy things, including OCR for images and PDFs within the limits of Tesseract. Video files are not supported. For video-to-text, try [Whisper](https://github.com/openai/whisper) locally or upload directly to [Gemini](https://gemini.google.com).
 
