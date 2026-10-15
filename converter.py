@@ -113,6 +113,7 @@ def extract_input(
     units = []
     warnings = []
     source_metrics = []
+    omissions = []
     for source_index, input_source in enumerate(input_sources, start=1):
         source_id = f"S{source_index}"
         if is_url:
@@ -149,15 +150,16 @@ def extract_input(
                 profile=profile,
                 ocr_pdf_page=_ocr_pdf_page,
             )
+            omissions.extend(metrics.pop("omissions", []))
         sources.append(source_meta)
         units.extend(url_units)
         warnings.extend(url_warnings)
         source_metrics.append({"source_id": source_id, **metrics})
 
-    omissions = []
     selected_units = units
     if trim_body:
-        selected_units, omissions = _body_trim(units, warnings)
+        selected_units, trim_omissions = _body_trim(units, warnings)
+        omissions.extend(trim_omissions)
     raw_parts = []
     cleaned_parts = []
     for source_meta in sources:

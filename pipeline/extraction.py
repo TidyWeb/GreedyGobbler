@@ -227,7 +227,8 @@ def _extract_pdf(path: str, source_id: str, ocr_pdf_page: Callable[[str, int], s
                     "source_id": source_id,
                     "locator": f"page {page_number}",
                     "raw": raw,
-                    "text": clean(cleaned, profile=profile),
+                    "text": clean(cleaned, profile=profile) if readable else "",
+                    "available": readable,
                 })
     except ConversionError:
         raise
@@ -242,6 +243,16 @@ def _extract_pdf(path: str, source_id: str, ocr_pdf_page: Callable[[str, int], s
         "page_count": page_count,
         "ocr_pages": ocr_pages,
         "pages_with_text": readable_pages,
+        "omissions": [
+            {
+                "unit_id": unit["id"],
+                "source_id": source_id,
+                "locator": unit["locator"],
+                "reason": "No readable text could be extracted from this page",
+            }
+            for unit in units
+            if not unit["available"]
+        ],
     }
 
 

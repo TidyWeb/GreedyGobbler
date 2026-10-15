@@ -50,6 +50,12 @@ def _write_mixed_pdf(path: Path) -> None:
     pdf.save()
 
 
+def _write_blank_pdf(path: Path) -> None:
+    pdf = canvas.Canvas(str(path))
+    pdf.showPage()
+    pdf.save()
+
+
 def _write_front_matter_pdf(path: Path, chapter_first: bool = False) -> None:
     pdf = canvas.Canvas(str(path))
     page_texts = (
@@ -207,12 +213,14 @@ class SourceExtractionRegressionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.all_pages_pdf = ARTIFACTS / "all-pages.pdf"
         cls.mixed_pdf = ARTIFACTS / "mixed-native-and-image.pdf"
+        cls.blank_pdf = ARTIFACTS / "blank.pdf"
         cls.front_matter_pdf = ARTIFACTS / "front-matter-before-body.pdf"
         cls.chapter_first_pdf = ARTIFACTS / "chapter-first.pdf"
         cls.table_pdf = ARTIFACTS / "table-grid.pdf"
         cls.technical_epub = ARTIFACTS / "technical-blocks.epub"
         _write_long_pdf(cls.all_pages_pdf)
         _write_mixed_pdf(cls.mixed_pdf)
+        _write_blank_pdf(cls.blank_pdf)
         _write_front_matter_pdf(cls.front_matter_pdf)
         _write_front_matter_pdf(cls.chapter_first_pdf, chapter_first=True)
         _write_table_pdf(cls.table_pdf)
@@ -346,6 +354,50 @@ class SourceExtractionRegressionTests(unittest.TestCase):
         self.assertIn("NATIVE_PAGE_MARKER", result["raw"])
         self.assertTrue(any("Page 2: OCR could not run" in warning for warning in result["warnings"]))
         self.assertTrue(any("Page 2: no readable text" in warning for warning in result["warnings"]))
+
+    def test_unreadable_pdf_page_has_empty_unit_text_and_explicit_omission(self):
+        original_ocr = converter._ocr_pdf_page
+        observed_pages = []
+
+        def empty_ocr(_path, page_number):
+            observed_pages.append(page_number)
+            return ""
+
+        converter._ocr_pdf_page = empty_ocr
+        try:
+            result = converter.extract_input(
+                [str(self.mixed_pdf), str(self.front_matter_pdf)],
+                trim_body=True,
+            )
+        finally:
+            converter._ocr_pdf_page = original_ocr
+
+        unreadable = result["units"][1]
+        self.assertEqual(observed_pages, [2])
+        self.assertIn("## Page 2", result["raw"])
+        self.assertTrue(result["units"][0]["available"])
+        self.assertFalse(unreadable["available"])
+        self.assertEqual(unreadable["text"], "")
+        self.assertNotIn("## Page 2", result["cleaned"])
+        self.assertIn(
+            {
+                "unit_id": unreadable["id"],
+                "source_id": unreadable["source_id"],
+                "locator": unreadable["locator"],
+                "reason": "No readable text could be extracted from this page",
+            },
+            result["omissions"],
+        )
+        self.assertEqual(
+            [item["unit_id"] for item in result["omissions"]],
+            ["S1-U0002", "S2-U0001", "S2-U0002"],
+        )
+        self.assertEqual([item["source_id"] for item in result["omissions"]], ["S1", "S2", "S2"])
+        self.assertTrue(any("no clear chapter" in warning for warning in result["warnings"]))
+
+    def test_entirely_unreadable_pdf_still_raises_actionable_error(self):
+        with self.assertRaisesRegex(converter.ConversionError, "no readable text"):
+            converter.extract_input(str(self.blank_pdf))
 
     def test_epub_raw_extraction_retains_technical_blocks_notes_and_hierarchy(self):
         raw = converter._epub_to_text(str(self.technical_epub))
