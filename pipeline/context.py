@@ -965,7 +965,7 @@ def _render_content(
                 )
 
             if block.kind != "heading":
-                pieces.append(f"[{block.order}]\n{block.text}")
+                pieces.append(f"[{block.order}]\n\n{block.text}")
     return "\n\n".join(pieces)
 
 
@@ -1017,7 +1017,7 @@ def _estimate_bundle_cost(
     for block in ordered_new:
         citation = f"[{block.order}]"
         if block.kind != "heading":
-            fragment = f"\n\n{citation}\n{block.text}"
+            fragment = f"\n\n{citation}\n\n{block.text}"
             # Tiktoken can merge across a fragment boundary; one token of slack per
             # fragment prevents those local boundary effects from granting budget.
             cost += counter.count(fragment) + boundary_slack

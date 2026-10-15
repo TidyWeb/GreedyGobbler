@@ -178,6 +178,9 @@ class ContextPackingTests(unittest.TestCase):
         self.assertRegex(content, r"(?m)^````python$")
         self.assertRegex(content, r"(?m)^\| Measure \| Value \|$")
         self.assertRegex(content, r"(?m)^\[\^source\]: The measurement came from page one\.$")
+        self.assertRegex(content, r"(?m)^\[\d+\]\n\n    indented code$")
+        self.assertRegex(content, r"(?m)^\[\d+\]\n\n\| Measure \| Value \|$")
+        self.assertRegex(content, r"(?m)^\[\d+\]\n\n\[\^source\]:")
         self.assertEqual(result["stats"]["output_tokens"], len(content.encode("utf-8")))
 
     def test_skipped_heading_levels_preserve_sibling_paths(self):
