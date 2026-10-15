@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from pipeline.context import prepare_context
+from pipeline.normaliser import clean
 from pipeline.token_budget import make_counter
 
 ROOT = Path(__file__).resolve().parent
@@ -26,10 +27,13 @@ FIXTURES = ROOT / "fixtures"
 WORD_RE = re.compile(r"[^\W_]+(?:[.-][^\W_]+)*", re.UNICODE)
 
 
-def _extraction(text: str, *, name: str, uri: str) -> dict[str, Any]:
+def _extraction(
+    text: str, *, name: str, uri: str, cleaned: str | None = None
+) -> dict[str, Any]:
+    cleaned_text = text if cleaned is None else cleaned
     return {
         "raw": text,
-        "cleaned": text,
+        "cleaned": cleaned_text,
         "sources": [{"id": "S1", "name": name, "uri": uri}],
         "units": [
             {
@@ -37,7 +41,7 @@ def _extraction(text: str, *, name: str, uri: str) -> dict[str, Any]:
                 "source_id": "S1",
                 "locator": "whole fixture",
                 "raw": text,
-                "text": text,
+                "text": cleaned_text,
             }
         ],
         "warnings": [],
@@ -79,17 +83,21 @@ def _measure(
         "selected_blocks": len(result["selected"]),
         "omitted_blocks": len(result["omitted"]),
         "retained_fact_ids": retained,
-        "fact_retention_ratio": round(len(retained) / max(1, len(facts)), 4),
+        "fact_retention_ratio": round(len(retained) / len(facts), 4) if facts else None,
         "export_to_cleaned_input_ratio": round(
             stats["output_tokens"] / max(1, stats["cleaned_tokens"]), 4
         ),
         "warnings": result["warnings"],
-        "query_term_coverage_proxy": {
-            "covered": len(query_covered),
-            "total": len(query_terms),
-            "ratio": round(len(query_covered) / max(1, len(query_terms)), 4),
-            "label": "lexical coverage proxy; not LLM answer accuracy",
-        },
+        "query_term_coverage_proxy": (
+            {
+                "covered": len(query_covered),
+                "total": len(query_terms),
+                "ratio": round(len(query_covered) / len(query_terms), 4),
+                "label": "lexical coverage proxy; not LLM answer accuracy",
+            }
+            if query_terms
+            else None
+        ),
         "runtime_seconds": round(runtime, 6),
         "tracemalloc_peak_bytes": peak,
         "export_bytes": len(content.encode("utf-8")),
@@ -122,12 +130,33 @@ def _large_case(block_count: int, budget: int) -> dict[str, Any]:
     return measured
 
 
+def _normaliser_scale(blank_lines: int) -> dict[str, Any]:
+    source = "Evidence begins.\n" + ("\n" * blank_lines) + "The result was not independently replicated.\n"
+    tracemalloc.start()
+    started = time.perf_counter()
+    normalized = clean(source, profile="document")
+    runtime = time.perf_counter() - started
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return {
+        "blank_lines": blank_lines,
+        "input_characters": len(source),
+        "output_characters": len(normalized),
+        "output_preserves_negation": "not independently replicated" in normalized,
+        "runtime_seconds": round(runtime, 6),
+        "tracemalloc_peak_bytes": peak,
+    }
+
+
 def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
     raw = (FIXTURES / "context_sample.md").read_text(encoding="utf-8")
     cleaned = (FIXTURES / "context_cleaned.md").read_text(encoding="utf-8")
+    actually_normalized = clean(raw, profile="document")
     large = (FIXTURES / "context_large.md").read_text(encoding="utf-8")
     facts_doc = json.loads((FIXTURES / "context_facts.json").read_text(encoding="utf-8"))
     facts = facts_doc["facts"]
+    source_facts = [dict(fact) for fact in facts]
+    source_facts[0]["phrase"] = "pilot vessel stabilised after the first six hours of operation"
     tokenizer = "cl100k_base"
     # Keep first tokenizer initialization outside mode timings; the benchmark
     # then measures context processing rather than cache/module startup.
@@ -139,22 +168,22 @@ def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
             "raw_faithful",
             _extraction(raw, name="Raw field note", uri="context_sample.md"),
             {"tokenizer": tokenizer, "mode": "faithful", "max_tokens": budget},
-            facts,
+            source_facts,
         ),
         _measure(
-            "conservative_clean_faithful",
+            "hand_edited_compact_fixture_faithful",
             _extraction(cleaned, name="Cleaned field note", uri="context_cleaned.md"),
             {"tokenizer": tokenizer, "mode": "faithful", "max_tokens": budget},
             facts,
         ),
         _measure(
-            "clean_balanced",
+            "hand_edited_compact_fixture_balanced",
             _extraction(cleaned, name="Cleaned field note", uri="context_cleaned.md"),
             {"tokenizer": tokenizer, "mode": "balanced", "max_tokens": budget},
             facts,
         ),
         _measure(
-            "clean_focused",
+            "hand_edited_compact_fixture_focused",
             _extraction(cleaned, name="Cleaned field note", uri="context_cleaned.md"),
             {
                 "tokenizer": tokenizer,
@@ -163,6 +192,45 @@ def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
                 "max_tokens": budget,
             },
             facts,
+        ),
+        _measure(
+            "actual_normaliser_output_faithful",
+            _extraction(
+                raw,
+                cleaned=actually_normalized,
+                name="Field note after conservative normalisation",
+                uri="context_sample.md",
+            ),
+            {"tokenizer": tokenizer, "mode": "faithful", "max_tokens": budget},
+            source_facts,
+        ),
+        _measure(
+            "actual_normaliser_output_balanced",
+            _extraction(
+                raw,
+                cleaned=actually_normalized,
+                name="Field note after conservative normalisation",
+                uri="context_sample.md",
+            ),
+            {"tokenizer": tokenizer, "mode": "balanced", "max_tokens": budget},
+            source_facts,
+        ),
+        _measure(
+            "actual_normaliser_output_focused",
+            _extraction(
+                raw,
+                cleaned=actually_normalized,
+                name="Field note after conservative normalisation",
+                uri="context_sample.md",
+            ),
+            {
+                "tokenizer": tokenizer,
+                "mode": "focused",
+                "query": facts_doc["focused_query"],
+                "max_tokens": budget,
+            },
+            source_facts,
+            question_evidence_phrase="was **not** independently replicated",
         ),
     ]
     large_extraction = _extraction(
@@ -203,10 +271,26 @@ def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
     large_focused["question"] = facts_doc["focused_query"]
     cases.append(large_focused)
     if compressor_model:
+        compression_text = (
+            "The coastal station records observations during each survey. "
+            "Researchers review the log, compare readings with nearby stations, "
+            "and organize field notes by location and season. The archive supports "
+            "later comparisons across survey teams and helps readers understand "
+            "how measurements were collected. Equipment notes describe the tools "
+            "used in the field, while weather notes provide context for the "
+            "observations. Local conditions are recorded alongside the results "
+            "so later researchers can interpret patterns across the region. "
+            "A consistent archive makes the survey record easier to review, "
+            "compare, and share with other research teams."
+        )
         cases.append(
             _measure(
-                "clean_llmlingua2_experimental",
-                _extraction(cleaned, name="Cleaned field note", uri="context_cleaned.md"),
+                "eligible_prose_llmlingua2_experimental",
+                _extraction(
+                    compression_text,
+                    name="Eligible prose compression fixture",
+                    uri="compression-prose.md",
+                ),
                 {
                     "tokenizer": tokenizer,
                     "mode": "faithful",
@@ -215,11 +299,35 @@ def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
                     "compressor_model": compressor_model,
                     "max_tokens": budget,
                 },
-                facts,
+                [],
             )
         )
 
     scales = [_large_case(block_count, 12000) for block_count in (1000, 2000, 4000)]
+    positions = (
+        ("beginning", source_facts[0]),
+        ("middle", facts[2]),
+        ("end", facts[-1]),
+    )
+    sensitivity = []
+    sample_extraction = _extraction(
+        raw, name="Field note sensitivity probe", uri="context_sample.md"
+    )
+    for position, fact in positions:
+        sensitivity.append(
+            _measure(
+                f"focused_tight_budget_{position}",
+                sample_extraction,
+                {
+                    "tokenizer": tokenizer,
+                    "mode": "focused",
+                    "query": fact["query"],
+                    "max_tokens": 300,
+                },
+                [fact],
+                question_evidence_phrase=fact["phrase"],
+            )
+        )
     return {
         "benchmark": "greedygobbler-source-context",
         "schema_version": 1,
@@ -230,10 +338,16 @@ def run_benchmark(compressor_model: str | None = None) -> dict[str, Any]:
             "Exact phrase retention and lexical query-term coverage are offline proxies, "
             "not generated-answer accuracy. Runtime and tracemalloc are local measurements. "
             "Export-to-cleaned-input ratios include wrapper, provenance, citations, and omissions. "
+            "The compact field-note fixture is manually edited and is only a packing regression; "
+            "actual normaliser cases call pipeline.normaliser.clean on the raw fixture. "
             "The 20k-token fixture combines fixed evidence statements with synthetic routine records."
         ),
         "cases": cases,
         "scaling": scales,
+        "normaliser_blank_line_scaling": [
+            _normaliser_scale(blank_lines) for blank_lines in (1000, 2000, 4000)
+        ],
+        "focused_evidence_position_sensitivity": sensitivity,
     }
 
 

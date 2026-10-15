@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .data/
 .test-artifacts/
+.playwright-cli/
 output/
 uploads/
 temp/

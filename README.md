@@ -7,36 +7,39 @@ Greedy Gobbler will eat most text-heavy things, including OCR for images and PDF
 # Greedy Gobbler
 
 Local desktop app that converts documents, ebooks, PDFs, images, and websites into clean Markdown for LLM context windows.
-No cloud is required for local files. URL extraction can use local crawling and Microlink fallback.
+Local files are processed on the device. URL extraction is optional and uses the submitted address; sending the URL to Microlink is a separate opt-in setting.
 
 ## Supported input formats
 
-| Format | Handler | Status |
-|--------|---------|--------|
-| PDF | `pdfplumber`, MarkItDown fallback, image OCR fallback | Supported |
-| EPUB | `EbookLib` body extraction | Supported |
-| MOBI / AZW / FB2 / LRF / HTMLZ | Calibre `ebook-convert`, when installed | Supported when Calibre is installed |
-| DjVu | `djvutxt`, when installed | Supported when DjVu tools are installed |
-| DOCX / XLSX / PPTX / CSV / TXT / HTML | MarkItDown | Supported |
-| JPG / JPEG / PNG | `pytesseract` OCR | Supported |
-| Video | Not supported | Not supported |
+| Input | Extraction path | Notes |
+|---|---|---|
+| PDF | `pdfplumber` page extraction, structured table capture, and OCR fallback | OCR uses Poppler and Tesseract when a page has no readable native text. Pages remain separate evidence units. |
+| EPUB | `EbookLib` spine extraction | Keeps chapter order, code, tables, footnotes and source locations where available. |
+| HTML | Local HTML parser | Preserves headings, paragraphs, lists, code and tables. |
+| TXT, Markdown, CSV, TSV, JSON, YAML, XML, RTF | Direct text or RTF extraction | Source wording is kept in the raw view. |
+| DOCX, XLSX, PPTX and other MarkItDown-supported files | MarkItDown | Extraction quality depends on the source format and its structure. |
+| JPG, PNG, TIFF and BMP | Tesseract OCR | OCR text can contain recognition errors and does not interpret images. |
+| MOBI, AZW, FB2, LRF, HTMLZ | Calibre `ebook-convert` | Optional system dependency. |
+| DjVu | `djvutxt` | Optional system dependency. |
 
-**URLs:** single-page extraction uses Microlink first, then Crawl4AI fallback. Depth 2 crawling stays on the same domain and is capped at 25 pages.
+Video is not supported. For video-to-text, use a separate transcription tool.
+
+Website extraction is disabled for private, loopback and reserved network addresses. Crawling can follow same-host links to a maximum of 25 pages. Browser rendering requires the optional browser dependencies. The Microlink option is off by default and sends the requested page address to that service; local files are never sent to it.
 
 ## Features
 
-- Drag-and-drop file upload
-- URL crawling with configurable depth
-- Markdown cleaning pipeline for navigation, cookie notices, boilerplate, Reddit chrome, duplicated blocks, and site UI clutter
-- Front/back matter trimming for EPUB and PDF body extraction
-- Raw / Normalised toggle to compare output before and after cleaning
-- Editable output preview before copy/save
-- Copy to clipboard or save as `.md` to `~/Downloads/GreedyGobbler/`
-- Smart filename generation from URL structure
+- Drag-and-drop document upload and optional URL extraction
+- Faithful raw text and conservative cleaned text previews
+- Context preparation in faithful, balanced or focused mode
+- A token budget, optional model-window reserves, and an optional UTF-8 byte bound when exact tokenizer data is unavailable
+- Source-backed selected and omitted evidence, with unit and location metadata
+- Three independent editable drafts: raw, cleaned and prepared context
+- Copy the active draft or save it as a new `.md` file
+- Optional experimental LLMLingua-2 compression using a model already stored locally
 
 ## Running with Docker
 
-Requires [Docker](https://docs.docker.com/get-docker/) installed.
+Requires Docker with Compose or a compatible Compose provider.
 
 ```bash
 git clone https://github.com/TidyWeb/GreedyGobbler.git
@@ -44,41 +47,44 @@ cd GreedyGobbler
 docker compose up --build
 ```
 
-Then open http://localhost:5001 in your browser. Converted files are saved to `./output/` in the project folder.
+Open [http://127.0.0.1:5001](http://127.0.0.1:5001). The service binds to loopback on the host. Saved exports use the named `greedygobbler-data` volume.
+
+The image preloads the `cl100k_base` and `o200k_base` tokenizer data during its build. Browser support and learned compression are optional build arguments: set `INSTALL_BROWSER=true` or `INSTALL_COMPRESSION=true` when building. Browser installation also needs its browser setup step. Compression additionally needs a local model path configured through `COMPRESSOR_MODEL`.
 
 ## Running without Docker
 
 ```bash
-cd GreedyGobbler
-source .venv/bin/activate
-python app.py
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/greedygobbler/tokenizers"
+TIKTOKEN_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/greedygobbler/tokenizers" \
+  .venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+.venv/bin/python app.py
 ```
 
-Then open [http://127.0.0.1:5001](http://127.0.0.1:5001) in your browser.
+The explicit tokenizer setup downloads only the small tokenizer data files. The application itself does not fetch missing tokenizer data or model weights. If exact tokenizer data is unavailable, select the clearly labelled UTF-8 byte-bound option.
+
+Open [http://127.0.0.1:5001](http://127.0.0.1:5001). Set `PORT` to use a different port. The default save folder is `~/Downloads/GreedyGobbler`; set `SAVE_DIR` and `TEMP_DIR` to change the local storage locations.
+
+## Design and validation
+
+- [Architecture](docs/architecture.md) describes extraction, normalisation, packing and trust boundaries.
+- [Development setup](docs/development.md) covers tests, optional engines and local configuration.
+- [Validation report](docs/validation.md) records the exercised versions, fixtures, results and skipped paths.
+- [Compression evaluation](docs/compression-evaluation.md) explains the offline evidence proxies and their limits.
 
 ## Project structure
 
 ```text
-app.py              Flask server (routes: /, /process, /download, /progress)
-converter.py        Orchestration for URLs, files, ebooks, PDF extraction, and OCR
+app.py              Flask routes and request validation
+converter.py        Extraction orchestration and backwards-compatible wrapper
 pipeline/
-  normaliser.py     Deterministic Markdown cleaning pipeline
-static/
-  index.html        UI
-  app.js            Frontend logic
-launch.sh           Launcher script
-requirements.txt    Python dependencies
+  extraction.py     File extraction and PDF/scan handling
+  normaliser.py     Conservative Markdown clean-up
+  web_fetch.py      Bounded website fetching and address checks
+  context.py        Evidence selection and context packing
+static/             Vanilla JavaScript interface
+tests/              Unit and integration tests
+benchmarks/         Offline fixtures and benchmark runner
+docs/               Architecture, setup and validation notes
 ```
-
-## Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| Flask | Web server |
-| MarkItDown | General file-to-Markdown conversion |
-| Crawl4AI | URL crawling and Markdown extraction |
-| `pdfplumber` + `pdf2image` | PDF text extraction and OCR fallback |
-| `EbookLib` + BeautifulSoup | EPUB body extraction |
-| `pytesseract` + Pillow | OCR for images and scanned PDFs |
-| Calibre `ebook-convert` | Optional conversion for MOBI/AZW/FB2/LRF/HTMLZ |
-| DjVu tools | Optional text extraction for DjVu files |

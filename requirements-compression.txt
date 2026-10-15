@@ -1,4 +1,4 @@
 # Optional local learned compression; no model is downloaded by the app.
 llmlingua==0.2.2
-transformers>=4.46,<5
-accelerate>=1.1,<2
+transformers==4.57.1
+accelerate==1.15.0

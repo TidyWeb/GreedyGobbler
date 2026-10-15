@@ -1,0 +1,26 @@
+# Version control and local environments
+.git/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Validation outputs and development-only material
+.test-artifacts/
+.playwright-cli/
+output/
+plans/
+tests/
+benchmarks/
+docs/
+.github/
+README.md
+CONTRIBUTING.md
+requirements-dev.txt
+requirements-test.txt
+
+# Local configuration and generated logs
+.env
+.env.*
+*.log

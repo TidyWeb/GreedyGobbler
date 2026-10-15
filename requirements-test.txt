@@ -1,0 +1,2 @@
+# Optional deterministic fixture generator for mixed text-and-scan PDF tests.
+reportlab==5.0.1
