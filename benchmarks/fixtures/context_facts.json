@@ -1,0 +1,35 @@
+{
+  "focused_query": "late shift exception NOT replicated 16.9 litres volatile solids",
+  "facts": [
+    {
+      "id": "opening-calibration",
+      "phrase": "stabilised after six hours of operation",
+      "query": "opening calibration six hours"
+    },
+    {
+      "id": "north-yield",
+      "phrase": "18.4 litres per kilogram of volatile solids",
+      "query": "North yield 18.4 litres volatile solids"
+    },
+    {
+      "id": "south-window",
+      "phrase": "The South sample excludes the first six hours of start-up.",
+      "query": "South sample six hours start-up exception"
+    },
+    {
+      "id": "handling-exception",
+      "phrase": "except the late-shift sample, which remained at room temperature for 40 minutes.",
+      "query": "late shift room temperature 40 minutes exception"
+    },
+    {
+      "id": "rare-marker",
+      "phrase": "orchid-731",
+      "query": "rare marker orchid-731 calibration"
+    },
+    {
+      "id": "closing-negation",
+      "phrase": "was **not** independently replicated",
+      "query": "late-shift value not independently replicated"
+    }
+  ]
+}
